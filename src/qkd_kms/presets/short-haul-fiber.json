@@ -1,0 +1,17 @@
+{
+  "id": "short-haul-fiber",
+  "name": "Short-haul fiber",
+  "description": "A high-throughput local link with small, quickly changing fluctuations.",
+  "buffer_capacity_bytes": 1048576,
+  "initial_fill_percent": 40,
+  "configuration": {
+    "average_rate_bytes_per_second": 25000,
+    "variation_percent": 8,
+    "fluctuation_interval_seconds": 1.5,
+    "smoothing": 0.55,
+    "minimum_rate_bytes_per_second": 15000,
+    "dropout_chance_per_minute": 0.005,
+    "dropout_duration_seconds": 1,
+    "generation_enabled": true
+  }
+}

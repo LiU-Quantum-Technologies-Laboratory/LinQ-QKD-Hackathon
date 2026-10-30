@@ -1,0 +1,17 @@
+{
+  "id": "ultra-fiber",
+  "name": "ULTRA!!!",
+  "description": "A constrained, noisy link with occasional short key-generation dropouts.",
+  "buffer_capacity_bytes": 32768,
+  "initial_fill_percent": 10,
+  "configuration": {
+    "average_rate_bytes_per_second": 180,
+    "variation_percent": 45,
+    "fluctuation_interval_seconds": 3,
+    "smoothing": 0.72,
+    "minimum_rate_bytes_per_second": 12,
+    "dropout_chance_per_minute": 0.18,
+    "dropout_duration_seconds": 7,
+    "generation_enabled": true
+  }
+}

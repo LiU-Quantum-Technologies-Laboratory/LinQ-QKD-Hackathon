@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LinQKD · Mock KMS</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #161819;
+      --muted: #687077;
+      --panel: rgba(255,255,255,.96);
+      --panel-2: #f7f9fa;
+      --line: #dde1e4;
+      --lime: #217b57;
+      --mint: #217b57;
+      --cyan: #005b99;
+      --orange: #b87922;
+      --red: #b74242;
+      --shadow: 0 16px 46px rgba(15, 34, 48, .09);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      font-family: "KorolevLiU", Inter, ui-sans-serif, system-ui, sans-serif;
+      background: radial-gradient(circle at 95% 0, #eaf3f8, transparent 32rem), #f4f5f3;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: .35;
+      background-image: linear-gradient(rgba(0,91,153,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(0,91,153,.035) 1px, transparent 1px);
+      background-size: 34px 34px;
+      mask-image: linear-gradient(to bottom, black, transparent 80%);
+    }
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    .hidden { display: none !important; }
+    .shell { position: relative; width: min(1480px, calc(100% - 40px)); margin: 0 auto; padding: 24px 0 48px; }
+    .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .mark {
+      display: grid; place-items: center; width: 42px; height: 42px; border-radius: 13px;
+      color: white; font-weight: 900; letter-spacing: -.08em;
+      background: #005b99;
+      box-shadow: 0 8px 30px rgba(0,91,153,.16);
+    }
+    .brand h1 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
+    .brand p { margin: 3px 0 0; color: var(--muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+    .top-actions { display: flex; align-items: center; gap: 10px; }
+    .status-pill {
+      display: flex; align-items: center; gap: 8px; padding: 9px 13px; border: 1px solid var(--line);
+      border-radius: 999px; color: #49545b; background: rgba(255,255,255,.85); font-size: 12px;
+    }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 12px var(--mint); }
+    .status-dot.offline { background: var(--red); box-shadow: 0 0 12px var(--red); }
+    .ghost-button, .button, .small-button {
+      border: 1px solid #cfd7dc; border-radius: 8px; color: #26343d; background: white;
+      transition: transform .15s, background .15s, border-color .15s;
+    }
+    .ghost-button { padding: 9px 13px; font-size: 12px; }
+    .button { padding: 11px 16px; font-weight: 750; }
+    .button.primary { color: white; border-color: #005b99; background: #005b99; }
+    .button:hover, .ghost-button:hover, .small-button:hover { transform: translateY(-1px); border-color: rgba(201,245,106,.38); }
+    .hero { display: flex; align-items: end; justify-content: space-between; gap: 30px; margin: 42px 0 25px; }
+    .eyebrow { color: var(--lime); font-size: 11px; font-weight: 800; letter-spacing: .17em; text-transform: uppercase; }
+    .hero h2 { max-width: 760px; margin: 8px 0 8px; font-size: clamp(31px, 4vw, 52px); line-height: 1.04; letter-spacing: -.055em; }
+    .hero p { max-width: 720px; margin: 0; color: var(--muted); line-height: 1.6; }
+    .endpoint { min-width: 220px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.8); }
+    .endpoint span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+    .endpoint code { color: var(--mint); font-size: 14px; }
+    .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px; }
+    .metric, .panel { border: 1px solid var(--line); background: var(--panel); box-shadow: var(--shadow); backdrop-filter: blur(16px); }
+    .metric { min-height: 138px; padding: 19px; border-radius: 16px; }
+    .metric-head { display: flex; align-items: center; justify-content: space-between; color: var(--muted); font-size: 12px; }
+    .metric-icon { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid var(--line); border-radius: 9px; color: var(--mint); }
+    .metric strong { display: block; margin-top: 23px; font-size: clamp(23px, 2.4vw, 34px); letter-spacing: -.045em; font-variant-numeric: tabular-nums; }
+    .metric small { color: var(--muted); font-size: 11px; }
+    .content-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(320px, .8fr); gap: 12px; align-items: start; }
+    .main-column, .side-column { display: grid; gap: 12px; }
+    .panel { padding: 20px; border-radius: 18px; }
+    .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 17px; }
+    .panel h3 { margin: 0; font-size: 15px; letter-spacing: -.015em; }
+    .panel-subtitle { margin-top: 5px; color: var(--muted); font-size: 11px; }
+    .chart-tools, .legend { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+    .trace-toggle {
+      display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; color: var(--muted);
+      border: 1px solid transparent; border-radius: 8px; background: transparent; font-size: 10px;
+    }
+    .trace-toggle:hover { color: var(--ink); background: rgba(255,255,255,.035); }
+    .trace-toggle[aria-pressed="false"] { opacity: .42; text-decoration: line-through; }
+    .swatch { width: 7px; height: 7px; border-radius: 50%; background: var(--mint); box-shadow: 0 0 8px rgba(92,225,185,.35); }
+    .swatch.consumption { background: var(--orange); box-shadow: 0 0 8px rgba(255,184,107,.35); }
+    .clear-chart { padding: 6px 9px; }
+    .chart-wrap { height: 245px; position: relative; }
+    canvas { display: block; width: 100%; height: 100%; }
+    .presets { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .preset {
+      min-height: 126px; padding: 15px; border: 1px solid var(--line); border-radius: 13px;
+      background: linear-gradient(145deg, white, #f7f9fa);
+    }
+    .preset-top { display: flex; align-items: start; justify-content: space-between; gap: 10px; }
+    .preset strong { font-size: 13px; }
+    .preset p { min-height: 33px; margin: 8px 0 12px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .preset-meta { color: #59656c; font: 10px ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .small-button { padding: 7px 9px; font-size: 10px; white-space: nowrap; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+    label { display: grid; gap: 7px; color: #3f464b; font-size: 11px; }
+    label.wide { grid-column: 1 / -1; }
+    .input-wrap { position: relative; }
+    input[type="number"], input[type="password"] {
+      width: 100%; padding: 10px 52px 10px 11px; color: var(--ink); border: 1px solid var(--line);
+      border-radius: 8px; outline: none; background: white; font-variant-numeric: tabular-nums;
+    }
+    input:focus { border-color: rgba(92,225,185,.55); box-shadow: 0 0 0 3px rgba(92,225,185,.08); }
+    .unit { position: absolute; right: 11px; top: 50%; transform: translateY(-50%); color: #657a73; font-size: 10px; pointer-events: none; }
+    .switch-row { display: flex; align-items: center; justify-content: space-between; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: #f7f9fa; }
+    .switch-copy strong { display: block; font-size: 11px; }
+    .switch-copy span { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
+    .switch { position: relative; width: 42px; height: 23px; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider { position: absolute; inset: 0; border-radius: 999px; background: #34423e; transition: .2s; }
+    .slider::before { content: ""; position: absolute; width: 17px; height: 17px; left: 3px; top: 3px; border-radius: 50%; background: white; transition: .2s; }
+    .switch input:checked + .slider { background: #005b99; }
+    .switch input:checked + .slider::before { transform: translateX(19px); background: white; }
+    .form-actions { display: flex; gap: 9px; margin-top: 16px; }
+    .buffer-bar { height: 11px; overflow: hidden; border-radius: 999px; background: rgba(0,0,0,.28); border: 1px solid var(--line); }
+    .buffer-fill { width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--cyan), var(--mint), var(--lime)); transition: width .5s ease; }
+    .buffer-actions { display: flex; gap: 7px; margin-top: 14px; }
+    .buffer-actions button { flex: 1; }
+    .facts { display: grid; gap: 0; }
+    .fact { display: flex; justify-content: space-between; gap: 20px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 11px; }
+    .fact:last-child { border-bottom: 0; padding-bottom: 0; }
+    .fact span { color: var(--muted); }
+    .fact strong { font-weight: 650; font-variant-numeric: tabular-nums; }
+    .login-screen { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
+    .login-card { width: min(430px, 100%); padding: 34px; border: 1px solid var(--line); border-radius: 23px; background: var(--panel); box-shadow: var(--shadow); }
+    .login-card .mark { margin-bottom: 25px; }
+    .login-card h1 { margin: 0; font-size: 30px; letter-spacing: -.04em; }
+    .login-card p { margin: 10px 0 25px; color: var(--muted); line-height: 1.55; font-size: 13px; }
+    .login-card input { padding-right: 11px; }
+    .login-card .button { width: 100%; margin-top: 14px; }
+    .error { min-height: 18px; margin-top: 12px; color: var(--red); font-size: 11px; }
+    .toast { position: fixed; right: 22px; bottom: 22px; max-width: 360px; padding: 12px 15px; border: 1px solid #cbdde9; border-radius: 11px; background: white; color: #26343d; box-shadow: var(--shadow); font-size: 12px; transform: translateY(20px); opacity: 0; pointer-events: none; transition: .25s; }
+    .backend-panel { display:flex; align-items:center; justify-content:space-between; gap:24px; margin-bottom:12px; }
+    .backend-copy { display:grid; gap:5px; }
+    .backend-copy p { margin:0; color:var(--muted); font-size:12px; }
+    .backend-choice { display:flex; gap:8px; }
+    .backend-choice button.active { color:white; border-color:#005b99; background:#005b99; }
+    .backend-choice button:disabled { cursor:not-allowed; opacity:.48; transform:none; }
+    .lease-note { color:var(--muted); font-size:11px; text-align:right; }
+    .physical-mode .mock-only { opacity:.55; pointer-events:none; }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.bad { border-color: rgba(255,123,123,.35); }
+    @media (max-width: 1050px) {
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+      .content-grid { grid-template-columns: 1fr; }
+      .side-column { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .side-column .panel:last-child { grid-column: 1 / -1; }
+    }
+    @media (max-width: 680px) {
+      .shell { width: min(100% - 22px, 1480px); padding-top: 13px; }
+      .hero { align-items: start; flex-direction: column; margin-top: 30px; }
+      .endpoint { width: 100%; }
+      .metrics, .presets, .side-column, .form-grid { grid-template-columns: 1fr; }
+      .side-column .panel:last-child { grid-column: auto; }
+      .top-actions .status-pill { display: none; }
+      .metric { min-height: 120px; }
+      .metric strong { margin-top: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <main id="login" class="login-screen hidden">
+    <form id="login-form" class="login-card">
+      <div class="mark">LQ</div>
+      <div class="eyebrow">Control plane</div>
+      <h1>Mock KMS</h1>
+      <p>Sign in to tune the QKD link model and inspect the shared key buffer.</p>
+      <label>Password
+        <input id="password" type="password" autocomplete="current-password" autofocus required>
+      </label>
+      <button class="button primary" type="submit">Open dashboard</button>
+      <div id="login-error" class="error" role="alert"></div>
+    </form>
+  </main>
+
+  <main id="dashboard" class="shell hidden">
+    <header class="topbar">
+      <div class="brand">
+        <div class="mark">LQ</div>
+        <div><h1>QKD KMS Simulator</h1><p>Key management system</p></div>
+      </div>
+      <div class="top-actions">
+        <div class="status-pill"><span>Session</span><code id="session-context">standalone</code></div>
+        <div class="status-pill"><span id="connection-dot" class="status-dot"></span><span id="connection-text">Live telemetry</span></div>
+        <button id="logout" class="ghost-button" type="button">Sign out</button>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div>
+        <div class="eyebrow">QKD link simulator</div>
+        <h2>Shape the link.<br>Watch every key byte.</h2>
+        <p>Control a stochastic key-generation source while Alice and Bob continue using the simulator socket interface.</p>
+      </div>
+      <div class="endpoint"><span>Client data plane</span><code id="socket-address">—</code></div>
+    </section>
+
+    <section class="metrics">
+      <article class="metric"><div class="metric-head"><span>Current generation</span><span class="metric-icon">↗</span></div><strong id="rate">—</strong><small id="rate-bytes">—</small></article>
+      <article class="metric"><div class="metric-head"><span>Buffer available</span><span class="metric-icon">◫</span></div><strong id="available">—</strong><small id="fill-percent">—</small></article>
+      <article class="metric"><div class="metric-head"><span>Keys issued</span><span class="metric-icon">◇</span></div><strong id="keys-issued">—</strong><small id="key-bytes">—</small></article>
+      <article class="metric"><div class="metric-head"><span>Waiting clients</span><span class="metric-icon">⌁</span></div><strong id="waiting">—</strong><small id="dropout-state">source online</small></article>
+    </section>
+
+    <section class="content-grid">
+      <div class="main-column">
+        <article class="panel">
+          <div class="panel-header">
+            <div><h3>Rate telemetry</h3><div class="panel-subtitle">Generated and consumed key material · rolling 15 minutes</div></div>
+            <div class="chart-tools">
+              <div class="legend" aria-label="Visible traces">
+                <button class="trace-toggle" data-trace="generation" type="button" aria-pressed="true"><span class="swatch"></span>Generation</button>
+                <button class="trace-toggle" data-trace="consumption" type="button" aria-pressed="true"><span class="swatch consumption"></span>Consumption</button>
+              </div>
+              <button id="clear-history" class="small-button clear-chart" type="button">Clear</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="rate-chart"></canvas></div>
+        </article>
+
+        <article class="panel mock-only">
+          <div class="panel-header"><div><h3>Link presets</h3><div class="panel-subtitle">JSON profiles loaded at server startup · applying one resets the buffer</div></div></div>
+          <div id="presets" class="presets"></div>
+        </article>
+
+        <article class="panel mock-only">
+          <div class="panel-header"><div><h3>Simulation parameters</h3><div class="panel-subtitle">Updates take effect immediately, including for waiting clients</div></div></div>
+          <form id="config-form">
+            <div class="form-grid">
+              <label>Average generation rate<div class="input-wrap"><input id="average_rate_bytes_per_second" type="number" min="0" max="8000000000" step="1" required><span class="unit">bit/s</span></div></label>
+              <label>Minimum generation rate<div class="input-wrap"><input id="minimum_rate_bytes_per_second" type="number" min="0" max="8000000000" step="1" required><span class="unit">bit/s</span></div></label>
+              <label>Rate variation (standard deviation)<div class="input-wrap"><input id="variation_percent" type="number" min="0" max="300" step="0.1" required><span class="unit">%</span></div></label>
+              <label>Fluctuation interval<div class="input-wrap"><input id="fluctuation_interval_seconds" type="number" min="0.1" max="3600" step="0.1" required><span class="unit">sec</span></div></label>
+              <label>Smoothing / inertia<div class="input-wrap"><input id="smoothing" type="number" min="0" max="0.99" step="0.01" required><span class="unit">0–.99</span></div></label>
+              <label>Dropout chance<div class="input-wrap"><input id="dropout_chance_per_minute" type="number" min="0" max="1" step="0.001" required><span class="unit">/ min</span></div></label>
+              <label>Dropout duration<div class="input-wrap"><input id="dropout_duration_seconds" type="number" min="0" max="3600" step="0.1" required><span class="unit">sec</span></div></label>
+              <label>Buffer capacity<div class="input-wrap"><input id="buffer_capacity_bytes" type="number" min="1" max="104857600" step="1" required><span class="unit">bytes</span></div></label>
+              <label class="wide"><span class="switch-row"><span class="switch-copy"><strong>Key generation enabled</strong><span>Pause to simulate a link that is administratively offline.</span></span><span class="switch"><input id="generation_enabled" type="checkbox"><span class="slider"></span></span></span></label>
+            </div>
+            <div class="form-actions"><button class="button primary" type="submit">Apply parameters</button></div>
+          </form>
+        </article>
+      </div>
+
+      <aside class="side-column">
+        <article class="panel">
+          <div class="panel-header"><div><h3>Key buffer</h3><div id="buffer-caption" class="panel-subtitle">—</div></div></div>
+          <div class="buffer-bar"><div id="buffer-fill" class="buffer-fill"></div></div>
+          <div class="buffer-actions mock-only">
+            <button class="small-button" data-fill="0" type="button">Drain</button>
+            <button class="small-button" data-fill="50" type="button">Half</button>
+            <button class="small-button" data-fill="100" type="button">Fill</button>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header"><div><h3>Buffer history</h3><div class="panel-subtitle">Available key material</div></div></div>
+          <div class="chart-wrap" style="height:190px"><canvas id="buffer-chart"></canvas></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header"><div><h3>Runtime</h3><div class="panel-subtitle">Shared Alice ↔ Bob link</div></div></div>
+          <div class="facts">
+            <div class="fact"><span>SAE pair</span><strong id="sae-pair">—</strong></div>
+            <div class="fact"><span>Pending keys</span><strong id="pending-keys">—</strong></div>
+            <div class="fact"><span>Total consumed</span><strong id="total-consumed">—</strong></div>
+            <div class="fact"><span>Uptime</span><strong id="uptime">—</strong></div>
+            <div class="fact"><span>Source state</span><strong id="source-state">—</strong></div>
+          </div>
+        </article>
+      </aside>
+    </section>
+  </main>
+  <div id="toast" class="toast" role="status"></div>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    const configFields = [
+      'average_rate_bytes_per_second', 'minimum_rate_bytes_per_second', 'variation_percent',
+      'fluctuation_interval_seconds', 'smoothing', 'dropout_chance_per_minute',
+      'dropout_duration_seconds', 'buffer_capacity_bytes'
+    ];
+    const rateFields = new Set(['average_rate_bytes_per_second', 'minimum_rate_bytes_per_second']);
+    const visibleTraces = { generation: true, consumption: true };
+    let csrfToken = '';
+    let latestStatus = null;
+    let formInitialized = false;
+    let pollTimer = null;
+    let toastTimer = null;
+
+    function number(value, digits = 0) {
+      return new Intl.NumberFormat(undefined, { maximumFractionDigits: digits }).format(value || 0);
+    }
+    function bytes(value) {
+      const units = ['B', 'KiB', 'MiB', 'GiB'];
+      let n = Math.max(0, Number(value) || 0), unit = 0;
+      while (n >= 1024 && unit < units.length - 1) { n /= 1024; unit++; }
+      return `${number(n, unit ? 1 : 0)} ${units[unit]}`;
+    }
+    function byteRate(value) { return `${bytes(value)}/s`; }
+    function bitRate(value) {
+      const units = ['bit/s', 'kbit/s', 'Mbit/s', 'Gbit/s'];
+      let n = Math.max(0, Number(value) || 0), unit = 0;
+      while (n >= 1000 && unit < units.length - 1) { n /= 1000; unit++; }
+      return `${number(n, unit ? 2 : 0)} ${units[unit]}`;
+    }
+    function duration(seconds) {
+      seconds = Math.floor(seconds || 0);
+      const hours = Math.floor(seconds / 3600), minutes = Math.floor((seconds % 3600) / 60);
+      if (hours) return `${hours}h ${minutes}m`;
+      if (minutes) return `${minutes}m ${seconds % 60}s`;
+      return `${seconds}s`;
+    }
+    const kmsSessionId = new URLSearchParams(window.location.search).get('session_id') || 'standalone';
+    $('session-context').textContent = kmsSessionId === 'standalone' ? 'personal' : kmsSessionId;
+    async function api(path, options = {}) {
+      const headers = { ...(options.headers || {}) };
+      headers['X-LinQKD-Session'] = kmsSessionId;
+      if (options.body && !headers['Content-Type']) headers['Content-Type'] = 'application/json';
+      if (options.method && !['GET', 'HEAD'].includes(options.method) && csrfToken) headers['X-CSRF-Token'] = csrfToken;
+      const apiUrl = new URL(path.replace(/^\/+/, ''), window.location.href);
+      const response = await fetch(apiUrl, { ...options, headers, credentials: 'same-origin' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const detail = Array.isArray(data.detail) ? data.detail.map(x => x.msg).join(', ') : data.detail;
+        const error = new Error(detail || `Request failed (${response.status})`);
+        error.status = response.status;
+        throw error;
+      }
+      return data;
+    }
+    function toast(message, bad = false) {
+      const node = $('toast');
+      node.textContent = message;
+      node.classList.toggle('bad', bad);
+      node.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => node.classList.remove('show'), 3000);
+    }
+    function showLogin(error = null) {
+      clearInterval(pollTimer);
+      $('dashboard').classList.add('hidden');
+      $('login').classList.remove('hidden');
+      $('login-error').textContent = error?.message || '';
+      $('password').focus();
+    }
+    async function showDashboard(session) {
+      csrfToken = session.csrf_token || '';
+      $('logout').classList.toggle('hidden', !session.authentication_enabled);
+      $('login').classList.add('hidden');
+      $('dashboard').classList.remove('hidden');
+      await Promise.all([refresh(true), loadPresets()]);
+      clearInterval(pollTimer);
+      pollTimer = setInterval(() => refresh(false), 1000);
+    }
+    async function bootstrap() {
+      try { await showDashboard(await api('/api/session')); }
+      catch (error) { showLogin(error); }
+    }
+    $('login-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      $('login-error').textContent = '';
+      try {
+        const session = await api('/api/login', { method: 'POST', body: JSON.stringify({ password: $('password').value }) });
+        $('password').value = '';
+        formInitialized = false;
+        await showDashboard(session);
+      } catch (error) { $('login-error').textContent = error.message; }
+    });
+    $('logout').addEventListener('click', async () => {
+      try { await api('/api/logout', { method: 'POST' }); } catch (_) {}
+      csrfToken = '';
+      showLogin();
+    });
+
+    async function refresh(initializeForm) {
+      try {
+        const status = await api('/api/status');
+        latestStatus = status;
+        renderStatus(status);
+        if (initializeForm || !formInitialized) {
+          populateForm(status);
+          formInitialized = true;
+        }
+        $('connection-dot').classList.remove('offline');
+        $('connection-text').textContent = 'Live telemetry';
+      } catch (error) {
+        $('connection-dot').classList.add('offline');
+        $('connection-text').textContent = 'Connection lost';
+        if (error.status === 401) showLogin(error);
+      }
+    }
+    function renderStatus(status) {
+      $('socket-address').textContent = `${status.socket_host}:${status.socket_port}`;
+      $('rate').textContent = bitRate(status.current_rate_bytes_per_second * 8);
+      $('rate-bytes').textContent = byteRate(status.current_rate_bytes_per_second);
+      $('available').textContent = bytes(status.buffer_available_bytes);
+      $('fill-percent').textContent = `${number(status.buffer_fill_percent, 1)}% of ${bytes(status.buffer_capacity_bytes)}`;
+      $('keys-issued').textContent = number(status.total_keys_issued);
+      $('key-bytes').textContent = `${bytes(status.total_key_bytes_issued)} allocated`;
+      $('waiting').textContent = number(status.blocked_consumers);
+      $('dropout-state').textContent = status.in_dropout ? 'link dropout active' : (status.configuration.generation_enabled ? 'source online' : 'generation paused');
+      $('buffer-caption').textContent = `${bytes(status.buffer_available_bytes)} available of ${bytes(status.buffer_capacity_bytes)}`;
+      $('buffer-fill').style.width = `${Math.max(0, Math.min(100, status.buffer_fill_percent))}%`;
+      $('sae-pair').textContent = `${status.sae_a} ↔ ${status.sae_b}`;
+      $('pending-keys').textContent = number(status.pending_keys);
+      $('total-consumed').textContent = bytes(status.total_consumed_bytes);
+      $('uptime').textContent = duration(status.uptime_seconds);
+      $('source-state').textContent = status.in_dropout ? 'Dropout' : (status.configuration.generation_enabled ? 'Generating' : 'Paused');
+      drawRateChart(status.history || []);
+      drawBufferChart(status.history || []);
+    }
+    function populateForm(status) {
+      for (const field of configFields) {
+        const value = field === 'buffer_capacity_bytes' ? status.buffer_capacity_bytes : status.configuration[field];
+        $(field).value = rateFields.has(field) ? value * 8 : value;
+      }
+      $('generation_enabled').checked = status.configuration.generation_enabled;
+    }
+    $('config-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const payload = {};
+      for (const field of configFields) {
+        const value = Number($(field).value);
+        payload[field] = rateFields.has(field) ? value / 8 : value;
+      }
+      payload.generation_enabled = $('generation_enabled').checked;
+      try {
+        const status = await api('/api/configuration', { method: 'PUT', body: JSON.stringify(payload) });
+        latestStatus = status; renderStatus(status); toast('Simulation parameters applied');
+      } catch (error) { toast(error.message, true); }
+    });
+    document.querySelectorAll('[data-fill]').forEach(button => button.addEventListener('click', async () => {
+      if (!latestStatus) return;
+      const available = Math.round(latestStatus.buffer_capacity_bytes * Number(button.dataset.fill) / 100);
+      try {
+        const status = await api('/api/buffer', { method: 'PUT', body: JSON.stringify({ available_bytes: available }) });
+        latestStatus = status; renderStatus(status); toast(`Buffer set to ${button.dataset.fill}%`);
+      } catch (error) { toast(error.message, true); }
+    }));
+    document.querySelectorAll('[data-trace]').forEach(button => button.addEventListener('click', () => {
+      const trace = button.dataset.trace;
+      visibleTraces[trace] = !visibleTraces[trace];
+      button.setAttribute('aria-pressed', String(visibleTraces[trace]));
+      if (latestStatus) drawRateChart(latestStatus.history || []);
+    }));
+    $('clear-history').addEventListener('click', async () => {
+      try {
+        const status = await api('/api/history/clear', { method: 'POST' });
+        latestStatus = status; renderStatus(status); toast('Telemetry history cleared');
+      } catch (error) { toast(error.message, true); }
+    });
+
+    async function loadPresets() {
+      try {
+        const { presets } = await api('/api/presets');
+        const container = $('presets');
+        container.replaceChildren();
+        for (const preset of presets) {
+          const card = document.createElement('article'); card.className = 'preset';
+          const top = document.createElement('div'); top.className = 'preset-top';
+          const title = document.createElement('strong'); title.textContent = preset.name;
+          const apply = document.createElement('button'); apply.className = 'small-button'; apply.type = 'button'; apply.textContent = 'Apply';
+          apply.addEventListener('click', () => applyPreset(preset.id, preset.name));
+          top.append(title, apply);
+          const description = document.createElement('p'); description.textContent = preset.description;
+          const meta = document.createElement('div'); meta.className = 'preset-meta';
+          meta.textContent = `${bitRate(preset.configuration.average_rate_bytes_per_second * 8)} avg · ${number(preset.configuration.variation_percent, 0)}% σ`;
+          card.append(top, description, meta); container.append(card);
+        }
+      } catch (error) { toast(error.message, true); }
+    }
+    async function applyPreset(id, name) {
+      try {
+        const status = await api(`/api/presets/${encodeURIComponent(id)}/apply`, { method: 'POST' });
+        latestStatus = status; populateForm(status); renderStatus(status); toast(`${name} preset applied`);
+      } catch (error) { toast(error.message, true); }
+    }
+
+    function setupCanvas(canvas) {
+      const rect = canvas.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+      const width = Math.max(1, rect.width), height = Math.max(1, rect.height);
+      if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
+        canvas.width = Math.round(width * dpr); canvas.height = Math.round(height * dpr);
+      }
+      const ctx = canvas.getContext('2d'); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return { ctx, width, height };
+    }
+    function baseChart(canvas, values, fixedMax, tickFormatter = bitRate) {
+      const { ctx, width, height } = setupCanvas(canvas), pad = { l: 47, r: 10, t: 12, b: 23 };
+      ctx.clearRect(0, 0, width, height);
+      const max = fixedMax || Math.max(1, ...values.flat().map(Number));
+      ctx.strokeStyle = 'rgba(166,204,191,.11)'; ctx.fillStyle = '#71867f'; ctx.font = '9px ui-monospace, monospace'; ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.t + (height - pad.t - pad.b) * i / 4;
+        ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(width - pad.r, y); ctx.stroke();
+        const label = fixedMax === 100 ? `${Math.round(max * (4-i)/4)}%` : tickFormatter(max * (4-i)/4);
+        ctx.fillText(label, 0, y + 3);
+      }
+      return { ctx, width, height, pad, max };
+    }
+    function plot(chart, values, color, fill) {
+      if (!values.length) return;
+      const { ctx, width, height, pad, max } = chart, plotW = width - pad.l - pad.r, plotH = height - pad.t - pad.b;
+      ctx.beginPath();
+      values.forEach((value, index) => {
+        const x = pad.l + plotW * (values.length === 1 ? 1 : index / (values.length - 1));
+        const y = pad.t + plotH * (1 - Math.max(0, Number(value)) / max);
+        index ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      });
+      if (fill) {
+        ctx.lineTo(pad.l + plotW, pad.t + plotH); ctx.lineTo(pad.l, pad.t + plotH); ctx.closePath();
+        const gradient = ctx.createLinearGradient(0, pad.t, 0, pad.t + plotH); gradient.addColorStop(0, fill); gradient.addColorStop(1, 'rgba(92,225,185,0)');
+        ctx.fillStyle = gradient; ctx.fill();
+        ctx.beginPath();
+        values.forEach((value, index) => {
+          const x = pad.l + plotW * (values.length === 1 ? 1 : index / (values.length - 1));
+          const y = pad.t + plotH * (1 - Math.max(0, Number(value)) / max);
+          index ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        });
+      }
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; ctx.stroke();
+    }
+    function drawRateChart(history) {
+      const generation = history.map(x => x.current_rate_bytes_per_second * 8);
+      const consumption = history.map(x => x.consumption_rate_bytes_per_second * 8);
+      const visibleValues = [];
+      if (visibleTraces.generation) visibleValues.push(generation);
+      if (visibleTraces.consumption) visibleValues.push(consumption);
+      const chart = baseChart($('rate-chart'), visibleValues);
+      if (visibleTraces.generation) plot(chart, generation, '#5ce1b9', 'rgba(92,225,185,.14)');
+      if (visibleTraces.consumption) plot(chart, consumption, '#ffb86b');
+    }
+    function drawBufferChart(history) {
+      const values = history.map(x => x.buffer_fill_percent);
+      const chart = baseChart($('buffer-chart'), [values], 100); plot(chart, values, '#65cbe8', 'rgba(101,203,232,.16)');
+    }
+    window.addEventListener('resize', () => { if (latestStatus) renderStatus(latestStatus); });
+    bootstrap();
+  </script>
+</body>
+</html>

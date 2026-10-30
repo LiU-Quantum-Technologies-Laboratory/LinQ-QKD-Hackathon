@@ -1,0 +1,17 @@
+{
+  "id": "stable-lab",
+  "name": "Stable lab source",
+  "description": "A deterministic source for repeatable demos and automated integration tests.",
+  "buffer_capacity_bytes": 262144,
+  "initial_fill_percent": 50,
+  "configuration": {
+    "average_rate_bytes_per_second": 10000,
+    "variation_percent": 0,
+    "fluctuation_interval_seconds": 5,
+    "smoothing": 0.65,
+    "minimum_rate_bytes_per_second": 10000,
+    "dropout_chance_per_minute": 0,
+    "dropout_duration_seconds": 0,
+    "generation_enabled": true
+  }
+}

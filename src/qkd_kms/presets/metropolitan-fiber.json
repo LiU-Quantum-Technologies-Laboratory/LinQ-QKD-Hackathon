@@ -1,0 +1,17 @@
+{
+  "id": "metropolitan-fiber",
+  "name": "Metropolitan fiber",
+  "description": "Moderate key generation with visible but well-damped rate variation.",
+  "buffer_capacity_bytes": 131072,
+  "initial_fill_percent": 25,
+  "configuration": {
+    "average_rate_bytes_per_second": 2500,
+    "variation_percent": 22,
+    "fluctuation_interval_seconds": 2.5,
+    "smoothing": 0.68,
+    "minimum_rate_bytes_per_second": 500,
+    "dropout_chance_per_minute": 0.04,
+    "dropout_duration_seconds": 3,
+    "generation_enabled": true
+  }
+}

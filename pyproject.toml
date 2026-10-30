@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qkd-kms-starter"
+version = "0.1.0"
+description = "Standalone QKD KMS simulator and AES hackathon starter"
+readme = "README.md"
+requires-python = ">=3.10"
+
+[project.optional-dependencies]
+demo = ["cryptography>=43,<47"]
+web = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1"]
+test = ["pytest>=8,<10", "httpx>=0.27,<1"]
+
+[project.scripts]
+qkd-kms-simulator = "qkd_kms.simulator:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+qkd_kms = ["presets/*.json", "static/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
