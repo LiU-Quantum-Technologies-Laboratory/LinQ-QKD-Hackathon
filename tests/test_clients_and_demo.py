@@ -17,7 +17,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from qkd_kms import Etsi014Client, KmsError, SimulatorClient
+from qkd_kms import Etsi014Client, KmsError, SimulatorClient, create_client
 from qkd_kms.client import _extract
 from qkd_kms.simulator import DEFAULT_SEED_HEX, MockKmsService
 
@@ -88,12 +88,28 @@ def test_invalid_identity_and_unknown_key(service):
         bob.fetch_key("99999")
 
 
-def test_demo_in_separate_processes(service, monkeypatch):
-    monkeypatch.setenv("KMS_BACKEND", "simulator")
-    monkeypatch.setenv("KMS_HOST", service.socket_address[0])
-    monkeypatch.setenv("KMS_PORT", str(service.socket_address[1]))
+@pytest.mark.parametrize("force_simulator", [False, True])
+def test_demo_in_separate_processes(service, force_simulator):
+    # Inject a code configuration for this temporary server into each process.
+    sender = {
+        "backend": "etsi014" if force_simulator else "simulator",
+        "host": service.socket_address[0],
+        "port": service.socket_address[1],
+        "local_sae_id": "SAE_002",
+    }
+    receiver = {**sender, "local_sae_id": "SAE_001"}
+    runner = [
+        sys.executable,
+        "-c",
+        "from examples import aes_demo; import sys; "
+        "aes_demo.SENDER_CONFIG = sys.argv.pop(1); "
+        "aes_demo.RECEIVER_CONFIG = sys.argv.pop(1); aes_demo.main()",
+        json.dumps(sender),
+        json.dumps(receiver),
+    ]
+    flags = ["--force-simulator"] if force_simulator else []
     encrypted = subprocess.run(
-        [sys.executable, "examples/aes_demo.py", "encrypt", "--message", "Hi Bob"],
+        runner + ["encrypt", "--message", "Hi Bob"] + flags,
         cwd=ROOT,
         check=True,
         capture_output=True,
@@ -101,7 +117,7 @@ def test_demo_in_separate_processes(service, monkeypatch):
     )
     assert "key" not in json.loads(encrypted.stdout)
     decrypted = subprocess.run(
-        [sys.executable, "examples/aes_demo.py", "decrypt"],
+        runner + ["decrypt"] + flags,
         cwd=ROOT,
         input=encrypted.stdout,
         check=True,
@@ -321,3 +337,22 @@ def test_real_adapter_http_error_and_tls_hostname_check(tls_files):
             real_client(url.replace("localhost", "127.0.0.1"), tls_files).allocate_key()
     with pytest.raises(ValueError, match="HTTPS origin"):
         real_client("http://localhost", tls_files)
+
+
+def test_factory_real_kms_roundtrip(tls_files):
+    with https_kms(tls_files) as (url, _):
+        endpoint = {
+            "base_url": url,
+            "peer_sae_id": "bob",
+            "ca_cert": tls_files["ca"],
+            "client_cert": tls_files["client_cert"],
+            "client_key": tls_files["client_key"],
+        }
+        sender_config = {"backend": "etsi014", **endpoint}
+        receiver_config = {**sender_config, "peer_sae_id": "alice"}
+        alice = create_client(sender_config)
+        bob = create_client(json.dumps(receiver_config))
+        assert (
+            demo.decrypt(bob, demo.encrypt(alice, b"factory-created clients"))
+            == b"factory-created clients"
+        )

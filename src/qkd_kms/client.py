@@ -3,14 +3,49 @@
 from __future__ import annotations
 
 import base64
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 import json
 import socket
 import ssl
-from typing import Protocol
+from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
+
+
+# One flat configuration describes one application's KMS connection.
+DEFAULT_CONFIG_JSON = """
+{
+  "backend": "simulator",
+  "host": "127.0.0.1",
+  "port": 9000,
+  "local_sae_id": "SAE_002",
+  "session_id": "standalone",
+  "timeout": 30
+}
+"""
+
+# Unused example. Replace the hostname, identities and paths before selecting it.
+# peer_sae_id is required only for backend="etsi014": it identifies the OTHER
+# application that will share the keys, for both allocation and key-ID retrieval.
+# Here the sender is SAE_002 and its peer is SAE_001. The receiver uses the
+# reverse: local_sae_id=SAE_001, peer_sae_id=SAE_002, and its own KMS/certificates.
+# The simulator already has a fixed pair of SAE IDs, so peer_sae_id is not used.
+# For ETSI, the client certificate establishes your local identity; local_sae_id
+# is kept here so force_simulator=True can select the matching simulator identity.
+NETWORK_KMS_CONFIG_JSON = """
+{
+  "backend": "etsi014",
+  "base_url": "https://kms.example:443",
+  "local_sae_id": "SAE_002",
+  "peer_sae_id": "SAE_001",
+  "client_cert": "certs/client.crt",
+  "client_key": "certs/client.key",
+  "ca_cert": "certs/kms-ca.crt",
+  "timeout": 30
+}
+"""
 
 
 class KmsError(RuntimeError):
@@ -217,3 +252,45 @@ class Etsi014Client:
         _length(length_bytes)
         data = self._request("dec_keys", body={"key_IDs": [{"key_ID": key_id}]})
         return _extract(data, "key", length_bytes, key_id)
+
+
+def create_client(
+    config: str | Mapping[str, Any] = DEFAULT_CONFIG_JSON,
+    *,
+    force_simulator: bool = False,
+) -> KmsClient:
+    """Create one client from flat JSON or a dictionary; no role names needed.
+
+    Omitting config uses the local simulator example above. No environment
+    variables are read. force_simulator=True overrides backend selection without
+    loading certificates. Simulator host/port default to localhost:9000, including
+    when overriding a real-KMS configuration. This connects to an existing server;
+    it does not start one. Connection failures never trigger automatic fallback.
+    """
+    settings = json.loads(config) if isinstance(config, str) else config
+    if not isinstance(settings, Mapping):
+        raise ValueError("KMS configuration must be a JSON object or mapping")
+    backend = "simulator" if force_simulator else settings.get("backend")
+    try:
+        if backend == "simulator":
+            return SimulatorClient(
+                host=settings.get("host", "127.0.0.1"),
+                port=settings.get("port", 9000),
+                local_sae_id=settings["local_sae_id"],
+                session_id=settings.get("session_id", "standalone"),
+                timeout=settings.get("timeout", 30),
+            )
+        if backend == "etsi014":
+            return Etsi014Client(
+                base_url=settings["base_url"],
+                peer_sae_id=settings["peer_sae_id"],
+                client_cert=settings["client_cert"],
+                client_key=settings["client_key"],
+                ca_cert=settings["ca_cert"],
+                timeout=settings.get("timeout", 30),
+            )
+    except KeyError as exc:
+        raise ValueError(f"Missing KMS configuration field: {exc.args[0]}") from exc
+    except (TypeError, AttributeError) as exc:
+        raise ValueError("Invalid KMS configuration structure or field types") from exc
+    raise ValueError("KMS backend must be 'simulator' or 'etsi014'")

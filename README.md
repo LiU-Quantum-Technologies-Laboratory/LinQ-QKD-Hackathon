@@ -79,15 +79,27 @@ software keys for testing only.
 Install this repository once, then import `qkd_kms`:
 
 ```python
-from qkd_kms import SimulatorClient
+from qkd_kms import create_client
 
-alice = SimulatorClient(local_sae_id='SAE_002')
-bob = SimulatorClient(local_sae_id='SAE_001')
-key = alice.allocate_key(32)
-# Send key.key_id to Bob over your application's channel, never key.key.
-matching_key = bob.fetch_key(key.key_id, 32)
-assert key.key == matching_key.key
+CONFIG = """
+{
+  "backend": "simulator",
+  "host": "127.0.0.1",
+  "port": 9000,
+  "local_sae_id": "SAE_002"
+}
+"""
+
+kms = create_client(CONFIG)
+key = kms.allocate_key(32)
+# Send key.key_id to your peer over the application's channel, never key.key.
+# The peer uses its own client: matching_key = peer.fetch_key(key.key_id, 32).
 ```
+
+Each configuration describes one application's connection. There are no role
+names to pass to the module. The demo runs both participants in one process, so
+it declares `SENDER_CONFIG` and `RECEIVER_CONFIG` as inline multiline JSON strings.
+Their `local_sae_id` values match the two identities configured on the simulator.
 
 `KmsClient` is the shared interface: `allocate_key(length_bytes=32)` and
 `fetch_key(key_id, length_bytes=32)` both return `KeyHandle(key_id, key)` with
@@ -100,57 +112,81 @@ The clients and headless simulator need only Python's standard library. The
 You can also embed the simulator by constructing `qkd_kms.simulator.MockKmsService`,
 calling `start()`, and always calling `stop()` when finished (see the tests).
 
-For multiple teams sharing a simulator, set `KMS_SESSION_ID=team-one` for both
-peers and view `http://127.0.0.1:8080/?session_id=team-one` in the dashboard.
+For multiple teams sharing a simulator, set `session_id` to `team-one`
+in the code configuration for both peers and view `http://127.0.0.1:8080/?session_id=team-one` in the dashboard.
 Session IDs are namespaces, not credentials. Each namespace has its own buffer
 and keys. The client waits up to 30 seconds for a key; if you deliberately pause
-or greatly slow generation, pass a larger `timeout` to `SimulatorClient`.
+or greatly slow generation, increase `timeout` in the configuration.
 A timed-out allocation may still complete on the server; a retry requests a new
 key and may leave an undelivered record until restart.
 
 ## Replace the simulator with a real KMS
 
-Construct `Etsi014Client` instead of `SimulatorClient`. The encryption and
-decryption functions stay unchanged. The adapter targets the
+Keep calling `create_client(CONFIG)` and change the flat JSON configuration:
+
+```python
+CONFIG = """
+{
+  "backend": "etsi014",
+  "base_url": "https://kms.example:443",
+  "local_sae_id": "SAE_002",
+  "peer_sae_id": "SAE_001",
+  "client_cert": "certs/client.crt",
+  "client_key": "certs/client.key",
+  "ca_cert": "certs/kms-ca.crt"
+}
+"""
+
+kms = create_client(CONFIG)
+```
+
+The example hostname, identities and certificate paths are placeholders. Each
+participant configures its own local KMS and credentials. Relative certificate
+paths are resolved from the directory where you run the application. Only paths
+go into configuration; private keys stay in their files.
+
+The AES demo includes an unused `NETWORK_KMS_CONFIG` string you can adapt for
+`SENDER_CONFIG`; set up `RECEIVER_CONFIG` for the peer too. All client classes,
+`create_client()`, and the module's example configurations live in
+[`src/qkd_kms/client.py`](src/qkd_kms/client.py). The demo defines its configurations
+directly so it can be read on its own. No separate configuration module or
+environment-variable overrides are involved. A Python dictionary is also accepted.
+
+The factory defaults to the local simulator example when called with no arguments.
+The optional `force_simulator` argument defaults to `False`. Set it to `True` to
+explicitly override a real-KMS configuration without loading its certificates:
+
+```python
+kms = create_client(CONFIG, force_simulator=True)
+```
+
+Simulator connections use `host` (default `127.0.0.1`), `port` (default `9000`),
+`local_sae_id`, optional `session_id` (default `standalone`) and `timeout` (default
+30 seconds). The override uses these same fields; the real KMS's `base_url` is
+ignored. Keep `local_sae_id` compatible with the running simulator when overriding.
+It connects to a simulator you have already started; it does not launch a server.
+The demo exposes the same override:
+
+```sh
+python examples/aes_demo.py --force-simulator
+```
+
+The real adapter targets the
 [ETSI GS QKD 014 v1.1.1 key-delivery API](https://www.etsi.org/deliver/etsi_gs/QKD/001_099/014/01.01.01_60/gs_qkd014v010101p.pdf):
 `GET enc_keys` and `POST dec_keys`. It converts byte lengths to bits for ETSI,
 decodes base64 replies and uses HTTPS with client certificates and CA validation.
 The simulator itself retains the original custom TCP protocol; it is not an
 ETSI REST server. The interchangeable Python adapters provide the common interface.
 
-```python
-from qkd_kms import Etsi014Client
-
-alice = Etsi014Client(
-    'https://alice-kms.example',
-    peer_sae_id='BOB_SAE_ID',
-    client_cert='/path/to/alice-client.crt',
-    client_key='/path/to/alice-client.key',
-    ca_cert='/path/to/kms-ca.crt',
-)
-key = alice.allocate_key(32)
-```
-
 Alice connects to her local KMS with Bob's SAE ID; Bob connects to his local KMS
 with Alice's SAE ID. The KMS operator must provision their peer relationship,
 identities, certificates and permissions. Hostnames must match certificates.
-There is no insecure TLS option and no fallback to simulated keys.
-
-To run the same AES demo against hardware, set these environment variables:
-
-| Variable | Value |
-| --- | --- |
-| `KMS_BACKEND` | `etsi014` |
-| `ALICE_KMS_URL`, `BOB_KMS_URL` | Each site's HTTPS KMS origin |
-| `ALICE_SAE_ID`, `BOB_SAE_ID` | Operator-provisioned application identities |
-| `ALICE_CLIENT_CERT`, `BOB_CLIENT_CERT` | Each application's certificate file |
-| `ALICE_CLIENT_KEY`, `BOB_CLIENT_KEY` | Each application's private key file |
-| `ALICE_CA_CERT`, `BOB_CA_CERT` | Trusted KMS CA certificate file |
+There is no insecure TLS option and no automatic fallback to simulated keys.
+Real-KMS configuration and connection failures are reported to the app.
 
 For the roundtrip demo, the machine needs connectivity and credentials for both
 sites. Separate `encrypt`/`decrypt` processes each need only their own credentials
-and their peer's SAE ID. For the simulator, optional `KMS_HOST` and `KMS_PORT`
-select its address; `KMS_BACKEND` defaults to `simulator`.
+and their peer's SAE ID. Encryption and decryption code stays unchanged.
 
 The HTTPS adapter is tested against a local mutual-TLS test server. Actual QKD
 hardware was not available for verification. Confirm the API version and vendor

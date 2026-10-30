@@ -9,7 +9,48 @@ import json
 import os
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from qkd_kms import Etsi014Client, KmsClient, SimulatorClient
+from qkd_kms import KmsClient, create_client
+
+# This program plays both participants. A normal app needs only its own config.
+# The only difference here is each participant's local SAE (application) identity.
+SENDER_CONFIG = """
+{
+  "backend": "simulator",
+  "host": "127.0.0.1",
+  "port": 9000,
+  "local_sae_id": "SAE_002"
+}
+"""
+
+RECEIVER_CONFIG = """
+{
+  "backend": "simulator",
+  "host": "127.0.0.1",
+  "port": 9000,
+  "local_sae_id": "SAE_001"
+}
+"""
+
+# Unused network example. Configure each participant's local KMS and credentials.
+# To use it, fill in the actual values and assign it to SENDER_CONFIG above.
+# peer_sae_id is required only for backend="etsi014": it identifies the OTHER
+# application that will share the keys, for both allocation and key-ID retrieval.
+# Here the sender is SAE_002 and its peer is SAE_001. The receiver uses the
+# reverse: local_sae_id=SAE_001, peer_sae_id=SAE_002, and its own KMS/certificates.
+# The simulator already has a fixed pair of SAE IDs, so peer_sae_id is not used.
+# For ETSI, the client certificate establishes your local identity; local_sae_id
+# is kept here so force_simulator=True can select the matching simulator identity.
+NETWORK_KMS_CONFIG = """
+{
+  "backend": "etsi014",
+  "base_url": "https://kms.example:443",
+  "local_sae_id": "SAE_002",
+  "peer_sae_id": "SAE_001",
+  "client_cert": "certs/client.crt",
+  "client_key": "certs/client.key",
+  "ca_cert": "certs/kms-ca.crt"
+}
+"""
 
 
 def encrypt(kms: KmsClient, plaintext: bytes) -> dict:
@@ -33,32 +74,6 @@ def decrypt(kms: KmsClient, envelope: dict) -> bytes:
     )
 
 
-def make_client(role: str) -> KmsClient:
-    # Changing the backend only changes construction; encrypt/decrypt stay the same.
-    prefix = role.upper()
-    local_id = os.getenv(
-        f"{prefix}_SAE_ID", "SAE_002" if role == "alice" else "SAE_001"
-    )
-    backend = os.getenv("KMS_BACKEND", "simulator")
-    if backend == "simulator":
-        return SimulatorClient(
-            os.getenv("KMS_HOST", "127.0.0.1"),
-            int(os.getenv("KMS_PORT", "9000")),
-            local_sae_id=local_id,
-            session_id=os.getenv("KMS_SESSION_ID", "standalone"),
-        )
-    if backend == "etsi014":
-        peer = "BOB" if role == "alice" else "ALICE"
-        return Etsi014Client(
-            os.environ[f"{prefix}_KMS_URL"],
-            peer_sae_id=os.environ[f"{peer}_SAE_ID"],
-            client_cert=os.environ[f"{prefix}_CLIENT_CERT"],
-            client_key=os.environ[f"{prefix}_CLIENT_KEY"],
-            ca_cert=os.environ[f"{prefix}_CA_CERT"],
-        )
-    raise ValueError("KMS_BACKEND must be simulator or etsi014")
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -68,19 +83,40 @@ def main():
         default="roundtrip",
     )
     parser.add_argument("--message", default="Hello from the QKD hackathon!")
+    parser.add_argument(
+        "--force-simulator",
+        action="store_true",
+        help="use the simulator even when the configuration selects a real KMS",
+    )
     args = parser.parse_args()
     if args.mode == "decrypt":
         # Read the JSON envelope on stdin, as if received over an application channel.
         import sys
 
-        print(decrypt(make_client("bob"), json.load(sys.stdin)).decode())
+        print(
+            decrypt(
+                create_client(RECEIVER_CONFIG, force_simulator=args.force_simulator),
+                json.load(sys.stdin),
+            ).decode()
+        )
     else:
-        envelope = encrypt(make_client("alice"), args.message.encode())
+        envelope = encrypt(
+            create_client(SENDER_CONFIG, force_simulator=args.force_simulator),
+            args.message.encode(),
+        )
         if args.mode == "encrypt":
             print(json.dumps(envelope))
         else:
             print(f"Alice encrypted a message with key ID {envelope['key_id']}.")
-            print("Bob decrypted:", decrypt(make_client("bob"), envelope).decode())
+            print(
+                "Bob decrypted:",
+                decrypt(
+                    create_client(
+                        RECEIVER_CONFIG, force_simulator=args.force_simulator
+                    ),
+                    envelope,
+                ).decode(),
+            )
 
 
 if __name__ == "__main__":
