@@ -1,15 +1,22 @@
 # QKD KMS hackathon starter
 
-Build an app that consumes shared keys from a QKD key management system (KMS).
-This repository contains an installable Python module, the standalone simulator
-extracted from `qkd-demo-apps`, its dashboard and link presets, and a small
-AES-256-GCM example. No portal or other demo apps are needed.
+This repo shows how to build a small app that consumes shared keys from a QKD 
+key management system (KMS).
+This repository contains an installable Python module called `qkd-kms`, which exposes 
+an API to consome keys. It is steup so you can easily switch between simulated keys or 
+keys from a real QKD system. You can also launch a web interface where you can monitor the KMS
+or change parameters if it uses a simulated QKD system.
 
-The simulator generates software keys; it does not simulate quantum physics or
+To show how to build an app s very simple AES-256-GCM example is included inside `examples/aes_demo.py`. 
+
+The simulator generates pseudo-random key material; it does not simulate quantum physics or
 provide QKD security. Its finite buffer, generation rate, fluctuations and
-outages let you explore how an application behaves when keys are scarce.
+outages let you explore how an application behaves when keys are scarce or the buffers fills up very slowly. 
 
-## Start in two terminals
+## Getting started
+You need to run the kms in one terminal and then the consuming app in another terminal.
+
+### Starting the KMS
 
 Requires Python 3.10 or newer. From this repository's root:
 
@@ -20,34 +27,48 @@ python -m pip install -e '.[demo,web]'
 qkd-kms-simulator --headless
 ```
 
+or if you prefer uv:
+```sh
+uv sync --all-extras
+uv run qkd-kms-simulator --headless
+```
+
+If you want to also server the dashboard where you can change the parameters exchange `--headless` 
+for  `--admin-password` or `--no-auth`.
+
 On Windows, activate with `.venv\Scripts\activate`.
+
+### Start the demo consumer app
 In another terminal, activate the same environment and run:
 
 ```sh
 python examples/aes_demo.py
 ```
+or if using uv:
+```sh
+uv run python examples/aes_demo.py
+```
 
-Expected output (the key ID varies):
+Expected output (the key ID varies if you rerun it):
 
 ```text
 Alice encrypted a message with key ID 1.
 Bob decrypted: Hello from the QKD hackathon!
 ```
 
-The simulator serves both Alice and Bob at `127.0.0.1:9000`. The default SAE
-(application) identities are `SAE_002` and `SAE_001`. Leave it running while you
-experiment. To see the dashboard, restart it without `--headless`:
 
-```sh
-qkd-kms-simulator --no-auth
-```
+### Experimenting
+The simulator serves keys to both Alice and Bob at `127.0.0.1:9000`. The default SAE
+(application) identities are `SAE_002` and `SAE_001`. You can leave it running while you
+experiment.
 
-Open <http://127.0.0.1:8080>. Change the rate, fill or drain the buffer, pause
+If you didn't start it with `--headless` you can open <http://127.0.0.1:8080> to view the dashboard. 
+Change the rate, fill or drain the buffer, pause
 key generation, or load a fiber/lab preset. `--no-auth` is for local development.
 To require a dashboard password, set `LINQKD_ADMIN_PASSWORD` and omit `--no-auth`.
 Dashboard authentication only protects the control plane; the simulator's TCP
 key transport has no TLS or authentication. Both listeners bind to localhost by
-default. Use it locally or on a trusted, isolated hackathon network.
+default. Use it locally or on a trusted, isolated network if you want to make it harder for Eve.
 
 ## What the example teaches
 
@@ -74,7 +95,7 @@ decrypted again by fetching its key. Simulator state is in memory and resets on
 restart. Random seeding is the default; `--seed-hex HEX` enables reproducible
 software keys for testing only.
 
-## Import it in your own MVP
+## Import it in your own app
 
 Install this repository once, then import `qkd_kms`:
 
@@ -96,8 +117,8 @@ key = kms.allocate_key(32)
 # The peer uses its own client: matching_key = peer.fetch_key(key.key_id, 32).
 ```
 
-Each configuration describes one application's connection. There are no role
-names to pass to the module. The demo runs both participants in one process, so
+Each configuration describes one application's connection. 
+The demo runs both participants in one process, so
 it declares `SENDER_CONFIG` and `RECEIVER_CONFIG` as inline multiline JSON strings.
 Their `local_sae_id` values match the two identities configured on the simulator.
 
