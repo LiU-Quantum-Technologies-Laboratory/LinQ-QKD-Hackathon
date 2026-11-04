@@ -129,3 +129,40 @@ def test_dashboard_has_no_external_runtime_dependencies() -> None:
     assert "/api/configuration" in dashboard
     assert "/api/history/clear" in dashboard
     assert "/api/presets" in dashboard
+
+
+def test_outage_stops_generation_without_erasing_buffer_or_backfilling():
+    clock = FakeClock()
+    bucket = TokenBucket(100, 2000, initial_tokens=32, clock=clock)
+    clock.advance(1)
+    bucket.set_outage(True)
+    assert bucket.snapshot()["buffer_available_bytes"] == 132
+    clock.advance(10)
+    status = bucket.snapshot()
+    assert status["outage_active"] is True
+    assert status["current_rate_bytes_per_second"] == 0
+    assert status["buffer_available_bytes"] == 132
+    assert status["configuration"]["generation_enabled"] is True
+    bucket.consume_blocking(32)  # Buffered keys are still available.
+    clock.advance(10)
+    bucket.set_outage(False)
+    assert bucket.snapshot()["buffer_available_bytes"] == 100
+    clock.advance(1)
+    assert bucket.snapshot()["buffer_available_bytes"] == 200
+
+
+def test_configuration_changes_cannot_clear_outage_and_pause_is_preserved():
+    clock = FakeClock()
+    bucket = TokenBucket(100, 1000, clock=clock)
+    bucket.set_outage(True)
+    bucket.configure(RateModelConfig(average_rate_bytes_per_second=200))
+    clock.advance(5)
+    assert bucket.snapshot()["buffer_available_bytes"] == 0
+    bucket.configure(RateModelConfig(average_rate_bytes_per_second=200, generation_enabled=False))
+    bucket.set_outage(False)
+    clock.advance(5)
+    status = bucket.snapshot()
+    assert status["outage_active"] is False
+    assert status["configuration"]["generation_enabled"] is False
+    assert status["current_rate_bytes_per_second"] == 0
+    assert status["buffer_available_bytes"] == 0

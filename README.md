@@ -70,6 +70,56 @@ Dashboard authentication only protects the control plane; the simulator's TCP
 key transport has no TLS or authentication. Both listeners bind to localhost by
 default. Use it locally or on a trusted, isolated network if you want to make it harder for Eve.
 
+## More examples
+
+Keep the KMS running in the first terminal. Each example has its own inline JSON
+configuration and can use either client backend.
+
+### Just fetch and inspect a key
+
+This is the smallest example: request one 256-bit key and print its ID, binary
+bits (eight per byte), and hexadecimal representation. It needs no demo extras.
+
+```sh
+python examples/fetch_key.py
+```
+
+With uv:
+
+```sh
+uv run python examples/fetch_key.py
+```
+
+### Encrypt and decrypt a PNG
+
+The image example uses a bundled 32×32 PNG, requests a fresh AES-256 key, encrypts
+the complete file, then retrieves the matching key through the receiver's KMS
+client and decrypts it. It verifies that the recovered PNG matches byte for byte.
+
+```sh
+python examples/png_demo.py
+```
+
+With uv (installs the AES dependency if needed):
+
+```sh
+uv run --extra demo python examples/png_demo.py
+```
+
+Or provide your own small PNG and output folder:
+
+```sh
+uv run --extra demo python examples/png_demo.py path/to/image.png --output-dir demo-output
+```
+
+Outputs are `demo-output/image.encrypted.json` (key ID, nonce and ciphertext; no
+key material) and `demo-output/image.decrypted.png`. Open the original
+`examples/sample.png` and the decrypted PNG to compare them. The encrypted JSON
+is the file you would send to your peer. The script reads small PNGs into memory;
+AES-GCM rejects tampering before it writes the decrypted file. Each run allocates
+a fresh key; subsequent runs replace the demo output files.
+
+
 ## What the example teaches
 
 1. Alice requests a fresh 32-byte key from her KMS.
@@ -81,6 +131,11 @@ default. Use it locally or on a trusted, isolated network if you want to make it
 The key ID is also authenticated as AES-GCM associated data. A fresh key is
 allocated for every message. AES-GCM authenticates the encrypted payload; an
 application still needs to establish who its peers are and protect its channels.
+
+AES-GCM always produces an authentication tag. The `AESGCM` library appends a
+16-byte tag to the encrypted bytes, so our envelope's `ciphertext` already
+contains it. Decryption verifies the tag automatically and raises `InvalidTag`
+if verification fails; no separate tag field or manual check is needed.
 
 For separate sender and receiver processes:
 
@@ -154,7 +209,8 @@ CONFIG = """
   "peer_sae_id": "SAE_001",
   "client_cert": "certs/client.crt",
   "client_key": "certs/client.key",
-  "ca_cert": "certs/kms-ca.crt"
+  "ca_cert": "certs/kms-ca.crt",
+  "ignore_cert": false
 }
 """
 
@@ -165,6 +221,48 @@ The example hostname, identities and certificate paths are placeholders. Each
 participant configures its own local KMS and credentials. Relative certificate
 paths are resolved from the directory where you run the application. Only paths
 go into configuration; private keys stay in their files.
+
+The certificate settings match the options in the supplied `qkd014-client` CLI:
+
+| Configuration field | CLI equivalent | Purpose |
+| --- | --- | --- |
+| `base_url` | `--hostname` / `-H` | HTTPS address of the local KMS, including `https://` |
+| `peer_sae_id` | `sae_id` argument | The other application's SAE ID |
+| `client_cert` | `--cert` / `-c` | Certificate identifying this application to the KMS |
+| `client_key` | `--key` / `-k` | Private key matching that client certificate |
+| `ca_cert` | `--ca` / `-r` | CA certificate used to verify the KMS server |
+| `ignore_cert` | `--force` / `-f` | Skip checking the server's certificate and hostname |
+
+`ignore_cert` defaults to `false`. With verification enabled, `ca_cert` may be
+omitted to use the system's trusted CAs. For a real KMS using mutual TLS, supply
+both `client_cert` and `client_key`; they must be a matching pair provisioned by
+the operator. The server establishes the local SAE identity from that certificate.
+The Python client handles TLS directly; the CLI's pip module is not required.
+
+For an HTTPS lab server whose certificate is not set up correctly, explicitly use
+`"ignore_cert": true`. For example, if it does not require client authentication:
+
+```python
+CONFIG = """
+{
+  "backend": "etsi014",
+  "base_url": "https://localhost:9443",
+  "local_sae_id": "SAE_002",
+  "peer_sae_id": "SAE_001",
+  "ignore_cert": true
+}
+"""
+
+kms = create_client(CONFIG)
+```
+
+This stays on HTTPS but disables server identity checks; use it only for trusted
+lab testing. In this mode `ca_cert` is ignored, including any configured file path.
+It does **not** bypass client authentication: if the KMS requires mutual TLS, keep
+supplying valid `client_cert` and `client_key` files. Supplying just one is an error,
+and supplied client files are always loaded, even with `ignore_cert: true`.
+This example expects a separate ETSI HTTPS lab server; the included simulator
+still uses its own TCP protocol. The AES functions work with either client.
 
 The AES demo includes an unused `NETWORK_KMS_CONFIG` string you can adapt for
 `SENDER_CONFIG`; set up `RECEIVER_CONFIG` for the peer too. All client classes,
@@ -201,8 +299,8 @@ ETSI REST server. The interchangeable Python adapters provide the common interfa
 
 Alice connects to her local KMS with Bob's SAE ID; Bob connects to his local KMS
 with Alice's SAE ID. The KMS operator must provision their peer relationship,
-identities, certificates and permissions. Hostnames must match certificates.
-There is no insecure TLS option and no automatic fallback to simulated keys.
+identities, certificates and permissions. With `ignore_cert: false`, hostnames
+must match certificates. There is no automatic fallback to simulated keys.
 Real-KMS configuration and connection failures are reported to the app.
 
 For the roundtrip demo, the machine needs connectivity and credentials for both
@@ -226,3 +324,61 @@ for the extraction inventory and remaining publication decisions. The original
 repository is unchanged. No certificates, private keys, local addresses or Git
 history were copied. A public license has not been chosen; confirm reuse rights
 and add the agreed license before publishing this repository.
+
+
+## Build and use as a library in your own project
+
+From your own project's directory, install this repository as a dependency.
+With pip, activate your project's environment first:
+
+```sh
+python -m pip install "/path/to/qkd-kms-starter"
+```
+
+Or with uv, which records the dependency in your project's `pyproject.toml`:
+
+```sh
+uv add "/path/to/qkd-kms-starter"
+```
+
+Then use the same API in your application:
+
+```python
+from qkd_kms import create_client
+
+kms = create_client(CONFIG)  # Your inline JSON configuration from the examples.
+key = kms.allocate_key(32)
+```
+
+To distribute a packaged release, build from this repository's root:
+
+```sh
+uv build
+```
+
+Or using Python's build tool:
+
+```sh
+python -m pip install build
+python -m build
+```
+
+This generates a `.whl` (installable package) and `.tar.gz` (source archive) in
+`dist/`. You can install the wheel in another project with either tool:
+
+```sh
+python -m pip install "/path/to/qkd-kms-starter/dist/qkd_kms_starter-0.1.0-py3-none-any.whl"
+```
+
+```sh
+uv add "/path/to/qkd-kms-starter/dist/qkd_kms_starter-0.1.0-py3-none-any.whl"
+```
+
+Installing directly from the source checkout also builds the package automatically;
+no separate build step is needed. The client itself requires no optional extras.
+Add `[demo]` or `[web]` to the source installation path if your app needs those
+optional dependencies.
+
+Commit source code and `pyproject.toml` to Git; keep generated `dist/` artifacts
+out of Git (already ignored). Rebuild them for each release, then attach them to
+a GitHub Release or publish them to a package registry such as PyPI.

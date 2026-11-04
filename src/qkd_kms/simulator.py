@@ -111,6 +111,7 @@ class TokenBucket:
         self.rate = float(self.config.average_rate_bytes_per_second)
         self._modeled_rate = self.rate
         self._in_dropout = False
+        self._outage_active = False
         self._dropout_until = 0.0
         self.t_last = self._clock()
         self._next_fluctuation_at = (
@@ -162,7 +163,7 @@ class TokenBucket:
         cfg = self.config
         if self._in_dropout and now >= self._dropout_until:
             self._in_dropout = False
-        if not self.config.generation_enabled or self._in_dropout:
+        if not self.config.generation_enabled or self._in_dropout or self._outage_active:
             self.rate = 0.0
         else:
             self.rate = max(cfg.minimum_rate_bytes_per_second, self._modeled_rate)
@@ -247,6 +248,16 @@ class TokenBucket:
             self.t_last = self._clock()
             self._condition.notify_all()
 
+    def set_outage(self, enabled: bool) -> None:
+        """Temporarily stop generation while preserving the configured rate and buffer."""
+        with self._condition:
+            now = self._clock()
+            # Account for elapsed time under the old state before switching.
+            self._refill_locked(now)
+            self._outage_active = enabled
+            self._effective_rate_locked(now)
+            self._condition.notify_all()
+
     def snapshot(self) -> dict:
         with self._condition:
             now = self._clock()
@@ -265,6 +276,7 @@ class TokenBucket:
                 "total_consumed_bytes": self.total_consumed_bytes,
                 "blocked_consumers": self.blocked_consumers,
                 "in_dropout": self._in_dropout,
+                "outage_active": self._outage_active,
                 "configuration": asdict(self.config),
             }
 

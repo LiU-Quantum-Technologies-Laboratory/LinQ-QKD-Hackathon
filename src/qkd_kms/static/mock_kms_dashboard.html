@@ -126,6 +126,10 @@
     .slider { position: absolute; inset: 0; border-radius: 999px; background: #34423e; transition: .2s; }
     .slider::before { content: ""; position: absolute; width: 17px; height: 17px; left: 3px; top: 3px; border-radius: 50%; background: white; transition: .2s; }
     .switch input:checked + .slider { background: #005b99; }
+    .outage-panel .switch input:checked + .slider { background: #c33d3d; }
+    .switch input:focus-visible + .slider { outline: 2px solid #005b99; outline-offset: 3px; }
+    .switch input:disabled + .slider { opacity: .5; }
+    .outage-note { margin: 12px 0 0; color: var(--muted); font-size: 11px; line-height: 1.6; }
     .switch input:checked + .slider::before { transform: translateX(19px); background: white; }
     .form-actions { display: flex; gap: 9px; margin-top: 16px; }
     .buffer-bar { height: 11px; overflow: hidden; border-radius: 999px; background: rgba(0,0,0,.28); border: 1px solid var(--line); }
@@ -259,6 +263,12 @@
       </div>
 
       <aside class="side-column">
+        <article class="panel mock-only outage-panel">
+          <div class="panel-header"><div><h3>Simulate outage / DoS</h3><div class="panel-subtitle">Temporarily interrupt key generation</div></div></div>
+          <label class="switch-row" for="outage_enabled"><span class="switch-copy"><strong>Outage active</strong><span id="outage-state">Checking status…</span></span><span class="switch"><input id="outage_enabled" type="checkbox" role="switch" disabled><span class="slider"></span></span></label>
+          <p class="outage-note">Switch on to stop generating new keys. Buffered keys remain available; requests wait when the buffer runs out. Switch off to restore the configured generation behavior. Use Drain below to exhaust the buffer immediately.</p>
+        </article>
+
         <article class="panel">
           <div class="panel-header"><div><h3>Key buffer</h3><div id="buffer-caption" class="panel-subtitle">—</div></div></div>
           <div class="buffer-bar"><div id="buffer-fill" class="buffer-fill"></div></div>
@@ -300,6 +310,7 @@
     const visibleTraces = { generation: true, consumption: true };
     let csrfToken = '';
     let latestStatus = null;
+    let outagePending = false;
     let formInitialized = false;
     let pollTimer = null;
     let toastTimer = null;
@@ -415,14 +426,19 @@
       $('keys-issued').textContent = number(status.total_keys_issued);
       $('key-bytes').textContent = `${bytes(status.total_key_bytes_issued)} allocated`;
       $('waiting').textContent = number(status.blocked_consumers);
-      $('dropout-state').textContent = status.in_dropout ? 'link dropout active' : (status.configuration.generation_enabled ? 'source online' : 'generation paused');
+      $('dropout-state').textContent = status.outage_active ? 'outage / DoS active' : (status.in_dropout ? 'link dropout active' : (status.configuration.generation_enabled ? 'source online' : 'generation paused'));
+      if (!outagePending) {
+        $('outage_enabled').checked = Boolean(status.outage_active);
+        $('outage_enabled').disabled = false;
+      }
+      $('outage-state').textContent = status.outage_active ? 'Generation stopped' : 'No forced outage';
       $('buffer-caption').textContent = `${bytes(status.buffer_available_bytes)} available of ${bytes(status.buffer_capacity_bytes)}`;
       $('buffer-fill').style.width = `${Math.max(0, Math.min(100, status.buffer_fill_percent))}%`;
       $('sae-pair').textContent = `${status.sae_a} ↔ ${status.sae_b}`;
       $('pending-keys').textContent = number(status.pending_keys);
       $('total-consumed').textContent = bytes(status.total_consumed_bytes);
       $('uptime').textContent = duration(status.uptime_seconds);
-      $('source-state').textContent = status.in_dropout ? 'Dropout' : (status.configuration.generation_enabled ? 'Generating' : 'Paused');
+      $('source-state').textContent = status.outage_active ? 'Outage / DoS' : (status.in_dropout ? 'Dropout' : (status.configuration.generation_enabled ? 'Generating' : 'Paused'));
       drawRateChart(status.history || []);
       drawBufferChart(status.history || []);
     }
@@ -433,6 +449,20 @@
       }
       $('generation_enabled').checked = status.configuration.generation_enabled;
     }
+    $('outage_enabled').addEventListener('change', async event => {
+      const enabled = event.target.checked;
+      outagePending = true;
+      event.target.disabled = true;
+      try {
+        const status = await api('/api/outage', { method: 'PUT', body: JSON.stringify({ enabled }) });
+        latestStatus = status; renderStatus(status);
+        toast(enabled ? 'Outage started: generation stopped' : 'Outage cleared');
+      } catch (error) { toast(error.message, true); }
+      finally {
+        outagePending = false;
+        if (latestStatus) renderStatus(latestStatus);
+      }
+    });
     $('config-form').addEventListener('submit', async event => {
       event.preventDefault();
       const payload = {};

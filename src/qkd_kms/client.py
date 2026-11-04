@@ -43,6 +43,7 @@ NETWORK_KMS_CONFIG_JSON = """
   "client_cert": "certs/client.crt",
   "client_key": "certs/client.key",
   "ca_cert": "certs/kms-ca.crt",
+  "ignore_cert": false,
   "timeout": 30
 }
 """
@@ -180,10 +181,13 @@ class SimulatorClient:
 
 
 class Etsi014Client:
-    """ETSI GS QKD 014 v1 HTTPS adapter with mandatory mutual TLS.
+    """ETSI GS QKD 014 v1 HTTPS adapter with configurable TLS certificates.
 
-    The local SAE identity is established by its client certificate. Each side
-    connects to its local KMS and addresses its peer SAE in the URL.
+    Each side connects to its local KMS and addresses its peer SAE in the URL.
+    client_cert/client_key identify this application when the KMS requires mTLS.
+    ca_cert verifies the server; omitting it uses the system's trusted CAs.
+    ignore_cert=True skips server certificate and hostname verification for lab
+    testing. It does not bypass a KMS requirement for a valid client certificate.
     """
 
     def __init__(
@@ -191,9 +195,10 @@ class Etsi014Client:
         base_url: str,
         *,
         peer_sae_id: str,
-        client_cert: str,
-        client_key: str,
-        ca_cert: str,
+        client_cert: str | None = None,
+        client_key: str | None = None,
+        ca_cert: str | None = None,
+        ignore_cert: bool = False,
         timeout: float = 30,
     ):
         parsed = urlsplit(base_url)
@@ -211,10 +216,22 @@ class Etsi014Client:
             )
         if not peer_sae_id:
             raise ValueError("peer_sae_id must not be empty")
+        if not isinstance(ignore_cert, bool):
+            raise ValueError("ignore_cert must be a boolean (true or false in JSON)")
+        if bool(client_cert) != bool(client_key):
+            raise ValueError("client_cert and client_key must be supplied together")
         self.base_url = base_url.rstrip("/")
         self.peer_sae_id, self.timeout = peer_sae_id, timeout
-        self.context = ssl.create_default_context(cafile=ca_cert)
-        self.context.load_cert_chain(client_cert, client_key)
+        if ignore_cert:
+            # Still encrypt with TLS, but explicitly skip server identity checks.
+            # Do not load ca_cert in this mode, even if its path is configured.
+            self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+            self.context.check_hostname = False
+            self.context.verify_mode = ssl.CERT_NONE
+        else:
+            self.context = ssl.create_default_context(cafile=ca_cert or None)
+        if client_cert:
+            self.context.load_cert_chain(client_cert, client_key)
 
     def _request(
         self, operation: str, *, query: dict | None = None, body: dict | None = None
@@ -284,9 +301,10 @@ def create_client(
             return Etsi014Client(
                 base_url=settings["base_url"],
                 peer_sae_id=settings["peer_sae_id"],
-                client_cert=settings["client_cert"],
-                client_key=settings["client_key"],
-                ca_cert=settings["ca_cert"],
+                client_cert=settings.get("client_cert"),
+                client_key=settings.get("client_key"),
+                ca_cert=settings.get("ca_cert"),
+                ignore_cert=settings.get("ignore_cert", False),
                 timeout=settings.get("timeout", 30),
             )
     except KeyError as exc:

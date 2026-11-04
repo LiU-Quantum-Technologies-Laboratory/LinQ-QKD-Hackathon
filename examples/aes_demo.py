@@ -40,6 +40,9 @@ RECEIVER_CONFIG = """
 # The simulator already has a fixed pair of SAE IDs, so peer_sae_id is not used.
 # For ETSI, the client certificate establishes your local identity; local_sae_id
 # is kept here so force_simulator=True can select the matching simulator identity.
+# client_cert/client_key authenticate this app; ca_cert verifies the KMS server.
+# ignore_cert=true skips only server certificate/hostname checks for lab testing.
+# Client cert/key may be omitted only if the server allows connections without them.
 NETWORK_KMS_CONFIG = """
 {
   "backend": "etsi014",
@@ -48,7 +51,8 @@ NETWORK_KMS_CONFIG = """
   "peer_sae_id": "SAE_001",
   "client_cert": "certs/client.crt",
   "client_key": "certs/client.key",
-  "ca_cert": "certs/kms-ca.crt"
+  "ca_cert": "certs/kms-ca.crt",
+  "ignore_cert": false
 }
 """
 

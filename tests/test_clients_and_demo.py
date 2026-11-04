@@ -225,7 +225,7 @@ def tls_files(tmp_path):
 
 
 @contextmanager
-def https_kms(files):
+def https_kms(files, *, require_client_cert=True):
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -276,7 +276,7 @@ def https_kms(files):
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(files["server_cert"], files["server_key"])
     context.load_verify_locations(files["ca"])
-    context.verify_mode = ssl.CERT_REQUIRED
+    context.verify_mode = ssl.CERT_REQUIRED if require_client_cert else ssl.CERT_NONE
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.socket = context.wrap_socket(server.socket, server_side=True)
     thread = threading.Thread(
@@ -356,3 +356,120 @@ def test_factory_real_kms_roundtrip(tls_files):
             demo.decrypt(bob, demo.encrypt(alice, b"factory-created clients"))
             == b"factory-created clients"
         )
+
+
+def test_ignore_cert_allows_untrusted_server_without_client_auth(tls_files):
+    with https_kms(tls_files, require_client_cert=False) as (url, requests):
+        config = {
+            "backend": "etsi014",
+            "base_url": url.replace("localhost", "127.0.0.1"),
+            "peer_sae_id": "bob",
+            "ignore_cert": True,
+        }
+        # Both the server CA and hostname are untrusted; strict mode rejects it.
+        with pytest.raises(KmsError, match="HTTPS request failed"):
+            create_client({**config, "ignore_cert": False}).allocate_key()
+        alice = create_client(config)
+        bob = create_client({**config, "peer_sae_id": "alice"})
+        assert demo.decrypt(bob, demo.encrypt(alice, b"lab keys")) == b"lab keys"
+        assert all(not request[3] for request in requests)
+
+
+def test_ignore_cert_still_sends_client_certificate(tls_files, tmp_path):
+    with https_kms(tls_files) as (url, requests):
+        config = {
+            "backend": "etsi014",
+            "base_url": url.replace("localhost", "127.0.0.1"),
+            "peer_sae_id": "bob",
+            "client_cert": tls_files["client_cert"],
+            "client_key": tls_files["client_key"],
+            "ca_cert": str(tmp_path / "unused-ca.crt"),
+            "ignore_cert": True,
+            "timeout": 2,
+        }
+        assert create_client(config).allocate_key().key == b"x" * 32
+        assert requests[-1][3] is True
+        # Ignoring the server certificate cannot bypass server-side mTLS rules.
+        with pytest.raises(KmsError, match="HTTPS request failed"):
+            create_client({**config, "client_cert": None, "client_key": None}).allocate_key()
+
+
+def load_example(name):
+    spec = importlib.util.spec_from_file_location(name, ROOT / f"examples/{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_png_example_roundtrip(service, tmp_path):
+    sender = {"backend": "simulator", "host": service.socket_address[0],
+              "port": service.socket_address[1], "local_sae_id": "SAE_002"}
+    receiver = {**sender, "local_sae_id": "SAE_001"}
+    command = [sys.executable, "-c",
+               "from examples import png_demo; import sys; "
+               "png_demo.SENDER_CONFIG = sys.argv.pop(1); "
+               "png_demo.RECEIVER_CONFIG = sys.argv.pop(1); png_demo.main()",
+               json.dumps(sender), json.dumps(receiver), "--output-dir", str(tmp_path)]
+    result = subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True)
+    assert "matches the original" in result.stdout
+    assert (tmp_path / "image.decrypted.png").read_bytes() == (ROOT / "examples/sample.png").read_bytes()
+    envelope = json.loads((tmp_path / "image.encrypted.json").read_text())
+    assert set(envelope) == {"key_id", "nonce", "ciphertext"}
+    assert not base64.b64decode(envelope["ciphertext"]).startswith(b"\x89PNG")
+
+
+def test_png_example_rejects_tampering_before_writing_output(service, tmp_path):
+    png = load_example("png_demo")
+    alice, bob = pair(service)
+    encrypted = tmp_path / "encrypted.json"
+    output = tmp_path / "decrypted.png"
+    png.encrypt_image(alice, ROOT / "examples/sample.png", encrypted)
+    envelope = json.loads(encrypted.read_text())
+    ciphertext = bytearray(base64.b64decode(envelope["ciphertext"]))
+    ciphertext[0] ^= 1
+    envelope["ciphertext"] = base64.b64encode(ciphertext).decode()
+    encrypted.write_text(json.dumps(envelope))
+    with pytest.raises(InvalidTag):
+        png.decrypt_image(bob, encrypted, output)
+    assert not output.exists()
+
+
+def test_minimal_key_example_prints_matching_binary_hex_and_id(service):
+    config = {"backend": "simulator", "host": service.socket_address[0],
+              "port": service.socket_address[1], "local_sae_id": "SAE_002"}
+    result = subprocess.run(
+        [sys.executable, "-c", "from examples import fetch_key; import sys; "
+         "fetch_key.CONFIG = sys.argv[1]; fetch_key.main()", json.dumps(config)],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    )
+    lines = dict(line.split(": ", 1) for line in result.stdout.strip().splitlines())
+    bits = lines["Binary"].split()
+    assert len(bits) == 32
+    assert all(len(value) == 8 and set(value) <= {"0", "1"} for value in bits)
+    binary_key = bytes(int(value, 2) for value in bits)
+    assert binary_key.hex() == lines["Hex"]
+    _, bob = pair(service)
+    assert bob.fetch_key(lines["Key ID"]).key == binary_key
+
+
+def test_outage_allows_peer_fetch_and_waiting_allocation_resumes(service):
+    from concurrent.futures import ThreadPoolExecutor
+    import time
+
+    alice, bob = pair(service)
+    key = alice.allocate_key()
+    service.buffer.set_outage(True)
+    assert bob.fetch_key(key.key_id).key == key.key
+    service.buffer.set_available_bytes(0)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(alice.allocate_key)
+        try:
+            deadline = time.monotonic() + 2
+            while service.buffer.snapshot()["blocked_consumers"] == 0 and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert service.buffer.snapshot()["blocked_consumers"] == 1
+            assert not future.done()
+        finally:
+            service.buffer.set_outage(False)
+        resumed_key = future.result(timeout=2)
+        assert bob.fetch_key(resumed_key.key_id).key == resumed_key.key

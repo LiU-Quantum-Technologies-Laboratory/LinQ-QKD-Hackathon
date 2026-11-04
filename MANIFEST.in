@@ -1,2 +1,2 @@
 include PROVENANCE.md
-recursive-include examples *.py
+recursive-include examples *.py *.png

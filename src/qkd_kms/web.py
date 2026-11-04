@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Deque, Dict, Optional
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, StrictBool, model_validator
 from .simulator import MockKmsService, RateModelConfig
 from .simulator import MAX_BUFFER_CAPACITY_BYTES
 
@@ -51,6 +51,10 @@ class ConfigurationRequest(BaseModel):
 
 class BufferLevelRequest(BaseModel):
     available_bytes: int = Field(ge=0, le=MAX_BUFFER_CAPACITY_BYTES)
+
+
+class OutageRequest(BaseModel):
+    enabled: StrictBool
 
 
 @dataclass(frozen=True)
@@ -305,6 +309,16 @@ def create_app(
             capacity_bytes=payload.buffer_capacity_bytes,
             session_id=session_id,
         )
+
+    @app.put("/api/outage")
+    def update_outage(
+        payload: OutageRequest,
+        _: Session = Depends(csrf_session),
+        session_id: str = Depends(kms_session_id),
+    ) -> dict:
+        service.get_context(session_id).buffer.set_outage(payload.enabled)
+        service.record_sample(session_id)
+        return service.status(session_id)
 
     @app.put("/api/buffer")
     def update_buffer(
