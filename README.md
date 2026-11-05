@@ -65,10 +65,14 @@ experiment.
 If you didn't start it with `--headless` you can open <http://127.0.0.1:8080> to view the dashboard. 
 Change the rate, fill or drain the buffer, pause
 key generation, or load a fiber/lab preset. `--no-auth` is for local development.
-To require a dashboard password, set `LINQKD_ADMIN_PASSWORD` and omit `--no-auth`.
 Dashboard authentication only protects the control plane; the simulator's TCP
 key transport has no TLS or authentication. Both listeners bind to localhost by
 default. Use it locally or on a trusted, isolated network if you want to make it harder for Eve.
+To require a dashboard password, set `LINQKD_ADMIN_PASSWORD` and omit `--no-auth`.
+```sh
+export LINQKD_ADMIN_PASSWORD='choose-your-password'
+.venv/bin/qkd-kms-simulator
+```
 
 ## More examples
 
