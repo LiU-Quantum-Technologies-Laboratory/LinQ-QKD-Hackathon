@@ -94,34 +94,40 @@ With uv:
 uv run python examples/fetch_key.py
 ```
 
-### Encrypt and decrypt a PNG
+### Encrypt and decrypt a PNG with a one-time pad
 
-The image example uses a bundled 32×32 PNG, requests a fresh AES-256 key, encrypts
-the complete file, then retrieves the matching key through the receiver's KMS
-client and decrypts it. It verifies that the recovered PNG matches byte for byte.
+The image example uses a bundled 32×32 PNG. The sender requests a fresh pad
+with exactly one key byte per byte of the PNG, then XORs them together. The
+receiver fetches the same pad by key ID and XORs it with the ciphertext to
+recover the PNG. The demo compares the original and recovered files byte for byte.
 
 ```sh
 python examples/png_demo.py
 ```
 
-With uv (installs the AES dependency if needed):
+With uv:
 
 ```sh
-uv run --extra demo python examples/png_demo.py
+uv run python examples/png_demo.py
 ```
 
 Or provide your own small PNG and output folder:
 
 ```sh
-uv run --extra demo python examples/png_demo.py path/to/image.png --output-dir demo-output
+uv run python examples/png_demo.py path/to/image.png --output-dir demo-output
 ```
 
-Outputs are `demo-output/image.encrypted.json` (key ID, nonce and ciphertext; no
-key material) and `demo-output/image.decrypted.png`. Open the original
-`examples/sample.png` and the decrypted PNG to compare them. The encrypted JSON
-is the file you would send to your peer. The script reads small PNGs into memory;
-AES-GCM rejects tampering before it writes the decrypted file. Each run allocates
-a fresh key; subsequent runs replace the demo output files.
+The sender writes the key ID and ciphertext to `demo-output/image.encrypted.json`
+for the receiver, who saves the recovered file as `demo-output/image.decrypted.png`.
+The demo also writes `demo-output/image.ciphertext.bmp` for viewing. The encrypted
+PNG header prevents image viewers from opening the raw ciphertext as a PNG.
+The bitmap gives those bytes a valid image header and shows each byte as a
+grayscale pixel. The receiver decrypts from the JSON envelope.
+Each run uses a new pad and replaces the output files. The simulator uses
+pseudorandom keys to demonstrate the technique. A true one-time pad requires
+uniformly random key bytes used only once. XOR alone provides no authentication:
+flipping a ciphertext bit flips the corresponding bit in the recovered file.
+If you use a real KMS, it must support requesting a key the size of your PNG.
 
 
 ## What the example teaches

@@ -6,6 +6,7 @@ import importlib.util
 import json
 from pathlib import Path
 import ssl
+import struct
 import subprocess
 import sys
 import threading
@@ -412,26 +413,40 @@ def test_png_example_roundtrip(service, tmp_path):
                json.dumps(sender), json.dumps(receiver), "--output-dir", str(tmp_path)]
     result = subprocess.run(command, cwd=ROOT, check=True, capture_output=True, text=True)
     assert "matches the original" in result.stdout
-    assert (tmp_path / "image.decrypted.png").read_bytes() == (ROOT / "examples/sample.png").read_bytes()
+    original = (ROOT / "examples/sample.png").read_bytes()
+    assert (tmp_path / "image.decrypted.png").read_bytes() == original
     envelope = json.loads((tmp_path / "image.encrypted.json").read_text())
-    assert set(envelope) == {"key_id", "nonce", "ciphertext"}
-    assert not base64.b64decode(envelope["ciphertext"]).startswith(b"\x89PNG")
+    assert set(envelope) == {"key_id", "ciphertext"}
+    ciphertext = base64.b64decode(envelope["ciphertext"])
+    assert len(ciphertext) == len(original)
+    bitmap = (tmp_path / "image.ciphertext.bmp").read_bytes()
+    signature, file_size, _, _, offset = struct.unpack_from("<2sIHHI", bitmap)
+    assert (signature, file_size) == (b"BM", len(bitmap))
+    _, width, height, _, depth = struct.unpack_from("<IiiHH", bitmap, 14)
+    assert height < 0 and depth == 24
+    stride = (width * 3 + 3) & ~3
+    for index, byte in enumerate(ciphertext):
+        row, column = divmod(index, width)
+        pixel = offset + row * stride + column * 3
+        assert bitmap[pixel : pixel + 3] == bytes([byte]) * 3
 
 
-def test_png_example_rejects_tampering_before_writing_output(service, tmp_path):
+def test_png_example_ciphertext_bit_flip_changes_the_matching_plaintext_bit(service, tmp_path):
     png = load_example("png_demo")
     alice, bob = pair(service)
     encrypted = tmp_path / "encrypted.json"
     output = tmp_path / "decrypted.png"
-    png.encrypt_image(alice, ROOT / "examples/sample.png", encrypted)
+    original = ROOT / "examples/sample.png"
+    png.encrypt_image(alice, original, encrypted)
     envelope = json.loads(encrypted.read_text())
     ciphertext = bytearray(base64.b64decode(envelope["ciphertext"]))
     ciphertext[0] ^= 1
     envelope["ciphertext"] = base64.b64encode(ciphertext).decode()
     encrypted.write_text(json.dumps(envelope))
-    with pytest.raises(InvalidTag):
-        png.decrypt_image(bob, encrypted, output)
-    assert not output.exists()
+    png.decrypt_image(bob, encrypted, output)
+    expected = bytearray(original.read_bytes())
+    expected[0] ^= 1
+    assert output.read_bytes() == expected
 
 
 def test_minimal_key_example_prints_matching_binary_hex_and_id(service):
