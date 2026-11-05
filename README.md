@@ -7,7 +7,7 @@ an API to consome keys. It is steup so you can easily switch between simulated k
 keys from a real QKD system. You can also launch a web interface where you can monitor the KMS
 or change parameters if it uses a simulated QKD system.
 
-To show how to build an app s very simple AES-256-GCM example is included inside `examples/aes_demo.py`. 
+To show how to build an app is very simple AES-256-GCM example is included inside `examples/aes_demo.py`. 
 
 The simulator generates pseudo-random key material; it does not simulate quantum physics or
 provide QKD security. Its finite buffer, generation rate, fluctuations and
