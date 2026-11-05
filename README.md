@@ -33,7 +33,7 @@ uv sync --all-extras
 uv run qkd-kms-simulator --headless
 ```
 
-If you want to also server the dashboard where you can change the parameters exchange `--headless` 
+If you want to also serve the dashboard where you can change the parameters exchange `--headless` 
 for  `--admin-password` or `--no-auth`.
 
 On Windows, activate with `.venv\Scripts\activate`.
