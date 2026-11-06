@@ -22,7 +22,7 @@ The CLI now binds locally and uses a random seed unless one is supplied.
 and adapter/AES integration tests are new. The original `mock_qkd_kms014.py` and
 `ThinkQuantumKMS.py` informed the adapter boundary, but were not copied: the new
 clients use a consistent single-key return type and decoded bytes. The real
-adapter speaks ETSI HTTPS directly and needs no vendor-specific library.
+adapter wraps the published `etsi-qkd-014-client` package.
 
 Excluded: all existing certificates and private keys (including root CA keys),
 machine-specific hardware settings and paths, SNMP tools, deployment settings,

@@ -193,8 +193,9 @@ raw `bytes`. Key material is excluded from the handle's printed representation.
 The client converts base64 and validates lengths at the boundary.
 
 To install into another app's environment, use `python -m pip install /path/to/qkd-kms-starter`.
-The clients and headless simulator need only Python's standard library. The
-`demo` extra adds `cryptography`; the `web` extra adds FastAPI and Uvicorn.
+The simulator client and headless simulator need only Python's standard library.
+The `etsi` extra adds the ETSI client library, `demo` adds `cryptography`, and
+`web` adds FastAPI and Uvicorn.
 You can also embed the simulator by constructing `qkd_kms.simulator.MockKmsService`,
 calling `start()`, and always calling `stop()` when finished (see the tests).
 
@@ -208,7 +209,18 @@ key and may leave an undelivered record until restart.
 
 ## Replace the simulator with a real KMS
 
-Keep calling `create_client(CONFIG)` and change the flat JSON configuration:
+Install the [ETSI QKD 014 client package](https://pypi.org/project/etsi-qkd-014-client/)
+through the `etsi` extra. From the repository root, use either command.
+
+```sh
+python -m pip install -e '.[demo,etsi]'
+```
+
+```sh
+uv sync --extra demo --extra etsi
+```
+
+Keep calling `create_client(CONFIG)` and set the ETSI configuration as follows.
 
 ```python
 CONFIG = """
@@ -245,10 +257,10 @@ The certificate settings match the options in the supplied `qkd014-client` CLI:
 | `ignore_cert` | `--force` / `-f` | Skip checking the server's certificate and hostname |
 
 `ignore_cert` defaults to `false`. With verification enabled, `ca_cert` may be
-omitted to use the system's trusted CAs. For a real KMS using mutual TLS, supply
+omitted to use the ETSI library's default trust store. For a real KMS using mutual TLS, supply
 both `client_cert` and `client_key`; they must be a matching pair provisioned by
 the operator. The server establishes the local SAE identity from that certificate.
-The Python client handles TLS directly; the CLI's pip module is not required.
+The wrapper passes these settings to the same Python library used by the CLI.
 
 For an HTTPS lab server whose certificate is not set up correctly, explicitly use
 `"ignore_cert": true`. For example, if it does not require client authentication:
@@ -302,9 +314,11 @@ python examples/aes_demo.py --force-simulator
 ```
 
 The real adapter targets the
-[ETSI GS QKD 014 v1.1.1 key-delivery API](https://www.etsi.org/deliver/etsi_gs/QKD/001_099/014/01.01.01_60/gs_qkd014v010101p.pdf):
-`GET enc_keys` and `POST dec_keys`. It converts byte lengths to bits for ETSI,
-decodes base64 replies and uses HTTPS with client certificates and CA validation.
+[ETSI GS QKD 014 v1.1.1 key-delivery API](https://www.etsi.org/deliver/etsi_gs/QKD/001_099/014/01.01.01_60/gs_qkd014v010101p.pdf).
+The wrapper calls `get_key()` for allocation and `get_key_with_key_IDs()` for
+retrieval. It converts byte lengths to bits and decodes replies into raw key bytes.
+The library uses HTTPS POST for both requests and sets a 10-second request
+timeout. The `timeout` configuration field applies to the simulator client.
 The simulator itself retains the original custom TCP protocol; it is not an
 ETSI REST server. The interchangeable Python adapters provide the common interface.
 
@@ -326,7 +340,7 @@ supported by implementing the two `KmsClient` methods.
 ## Development and provenance
 
 ```sh
-python -m pip install -e '.[demo,web,test]'
+python -m pip install -e '.[demo,web,test,etsi]'
 python -m pytest
 ```
 
@@ -386,9 +400,8 @@ uv add "/path/to/qkd-kms-starter/dist/qkd_kms_starter-0.1.0-py3-none-any.whl"
 ```
 
 Installing directly from the source checkout also builds the package automatically;
-no separate build step is needed. The client itself requires no optional extras.
-Add `[demo]` or `[web]` to the source installation path if your app needs those
-optional dependencies.
+no separate build step is needed. Add `[etsi]` to the source installation path
+for the ETSI client. The simulator client is available with the base installation.
 
 Commit source code and `pyproject.toml` to Git; keep generated `dist/` artifacts
 out of Git (already ignored). Rebuild them for each release, then attach them to

@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import base64
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 import json
 import socket
 import ssl
 from typing import Any, Protocol
-from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode, urlsplit
-from urllib.request import Request, urlopen
+from urllib.parse import quote, urlsplit
 
 
 # One flat configuration describes one application's KMS connection.
@@ -44,8 +42,7 @@ NETWORK_KMS_CONFIG_JSON = """
   "client_cert": "certs_out/qkd_client.cert",
   "client_key": "certs_out/qkd_client.key",
   "ca_cert": "certs_out/root_ca.cert",
-  "ignore_cert": false,
-  "timeout": 30
+  "ignore_cert": false
 }
 """
 
@@ -186,7 +183,7 @@ class Etsi014Client:
 
     Each side connects to its local KMS and addresses its peer SAE in the URL.
     client_cert/client_key identify this application when the KMS requires mTLS.
-    ca_cert verifies the server; omitting it uses the system's trusted CAs.
+    ca_cert verifies the server; omitting it uses the library's default trust store.
     ignore_cert=True skips server certificate and hostname verification for lab
     testing. It does not bypass a KMS requirement for a valid client certificate.
     """
@@ -200,7 +197,6 @@ class Etsi014Client:
         client_key: str | None = None,
         ca_cert: str | None = None,
         ignore_cert: bool = False,
-        timeout: float = 30,
     ):
         parsed = urlsplit(base_url)
         if (
@@ -221,55 +217,61 @@ class Etsi014Client:
             raise ValueError("ignore_cert must be a boolean (true or false in JSON)")
         if bool(client_cert) != bool(client_key):
             raise ValueError("client_cert and client_key must be supplied together")
-        self.base_url = base_url.rstrip("/")
-        self.peer_sae_id, self.timeout = peer_sae_id, timeout
-        if ignore_cert:
-            # Still encrypt with TLS, but explicitly skip server identity checks.
-            # Do not load ca_cert in this mode, even if its path is configured.
-            self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            self.context.check_hostname = False
-            self.context.verify_mode = ssl.CERT_NONE
-        else:
-            self.context = ssl.create_default_context(cafile=ca_cert or None)
-        if client_cert:
-            self.context.load_cert_chain(client_cert, client_key)
-
-    def _request(
-        self, operation: str, *, query: dict | None = None, body: dict | None = None
-    ) -> dict:
-        url = f"{self.base_url}/api/v1/keys/{quote(self.peer_sae_id, safe='')}/{operation}"
-        if query:
-            url += "?" + urlencode(query)
-        request = Request(
-            url,
-            data=json.dumps(body).encode() if body is not None else None,
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
-        )
         try:
-            with urlopen(
-                request, context=self.context, timeout=self.timeout
-            ) as response:
-                payload = response.read(1_000_001)
-                if len(payload) > 1_000_000:
-                    raise KmsError("KMS response exceeded size limit")
-                result = json.loads(payload)
-                if not isinstance(result, dict):
-                    raise KmsError("KMS returned invalid JSON data")
-                return result
-        except HTTPError as exc:
-            raise KmsError(f"KMS returned HTTP {exc.code}") from exc
-        except (URLError, OSError, ValueError) as exc:
+            from etsi_qkd_014_client import QKD014Client
+        except ModuleNotFoundError as exc:
+            if exc.name != "etsi_qkd_014_client":
+                raise
+            raise KmsError("Install qkd-kms-starter[etsi] to use the ETSI client") from exc
+
+        # Validate configured files before the first request. The library loads
+        # them for HTTPS and handles server verification on each connection.
+        if ca_cert and not ignore_cert:
+            ssl.create_default_context(cafile=ca_cert)
+        if client_cert:
+            ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_cert_chain(client_cert, client_key)
+        self.base_url = base_url.rstrip("/")
+        self.peer_sae_id = peer_sae_id
+        self._client = QKD014Client(
+            kme_hostname=parsed.netloc,
+            cert_path=client_cert or None,
+            key_path=client_key or None,
+            ca_path=ca_cert or True,
+            force_insecure=ignore_cert,
+        )
+
+    def _request_key(
+        self,
+        request: Callable[[], tuple[int, Any]],
+        length_bytes: int,
+        expected_id: str | None = None,
+    ) -> KeyHandle:
+        try:
+            status, data = request()
+        except Exception as exc:
+            # The upstream client also raises plain Exception for malformed replies.
             raise KmsError("KMS HTTPS request failed") from exc
+        if status != 200:
+            raise KmsError(f"KMS returned HTTP {status}")
+        keys = [{"key_id": key.key_id, "key": key.key} for key in data.keys]
+        return _extract({"keys": keys}, "key", length_bytes, expected_id)
 
     def allocate_key(self, length_bytes: int = 32) -> KeyHandle:
         _length(length_bytes)
-        data = self._request("enc_keys", query={"number": 1, "size": length_bytes * 8})
-        return _extract(data, "key", length_bytes)
+        peer = quote(self.peer_sae_id, safe="")
+        return self._request_key(
+            lambda: self._client.get_key(peer, number=1, size=length_bytes * 8),
+            length_bytes,
+        )
 
     def fetch_key(self, key_id: str, length_bytes: int = 32) -> KeyHandle:
         _length(length_bytes)
-        data = self._request("dec_keys", body={"key_IDs": [{"key_ID": key_id}]})
-        return _extract(data, "key", length_bytes, key_id)
+        peer = quote(self.peer_sae_id, safe="")
+        return self._request_key(
+            lambda: self._client.get_key_with_key_IDs(peer, [key_id]),
+            length_bytes,
+            key_id,
+        )
 
 
 def create_client(
@@ -306,7 +308,6 @@ def create_client(
                 client_key=settings.get("client_key"),
                 ca_cert=settings.get("ca_cert"),
                 ignore_cert=settings.get("ignore_cert", False),
-                timeout=settings.get("timeout", 30),
             )
     except KeyError as exc:
         raise ValueError(f"Missing KMS configuration field: {exc.args[0]}") from exc

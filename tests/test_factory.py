@@ -1,5 +1,4 @@
 import json
-import ssl
 
 import pytest
 
@@ -77,8 +76,8 @@ def test_server_verification_is_enabled_by_default():
         "backend": "etsi014", "base_url": "https://kms.example", "peer_sae_id": "peer"
     })
     assert isinstance(client, Etsi014Client)
-    assert client.context.check_hostname is True
-    assert client.context.verify_mode == ssl.CERT_REQUIRED
+    assert client._client.force_insecure is False
+    assert client._client.ca_path is True
 
 
 @pytest.mark.parametrize("ignore_cert", ["false", "true", 1, None])

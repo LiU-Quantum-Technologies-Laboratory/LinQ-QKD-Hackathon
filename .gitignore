@@ -9,12 +9,7 @@ dist/
 .env
 .env.*
 !.env.example
-*.key
-*.pem
 *.p12
 *.pfx
-*.cert
-*.crt
 *.csr
-certs/
 demo-output/

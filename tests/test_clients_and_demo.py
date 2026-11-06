@@ -239,35 +239,19 @@ def https_kms(files, *, require_client_cert=True):
             self.end_headers()
             self.wfile.write(json.dumps(data).encode())
 
-        def do_GET(self):
-            requests.append(
-                ("GET", self.path, None, bool(self.connection.getpeercert()))
-            )
-            if "/missing/" in self.path:
-                return self.respond(404, {})
-            self.respond(
-                200,
-                {
-                    "keys": [
-                        {
-                            "key_id": "test-id",
-                            "key": base64.b64encode(b"x" * 32).decode(),
-                        }
-                    ]
-                },
-            )
-
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             requests.append(
                 ("POST", self.path, body, bool(self.connection.getpeercert()))
             )
+            if "/missing/" in self.path:
+                return self.respond(404, {"message": "Unknown SAE"})
             self.respond(
                 200,
                 {
                     "keys": [
                         {
-                            "key_id": "test-id",
+                            "key_ID": "test-id",
                             "key": base64.b64encode(b"x" * 32).decode(),
                         }
                     ]
@@ -309,7 +293,7 @@ def test_etsi_https_mutual_tls_and_wire_format(tls_files):
         handle = alice.allocate_key(32)
         assert bob.fetch_key(handle.key_id).key == handle.key == b"x" * 32
         assert requests == [
-            ("GET", "/api/v1/keys/SAE%2Fpeer/enc_keys?number=1&size=256", None, True),
+            ("POST", "/api/v1/keys/SAE%2Fpeer/enc_keys", {"number": 1, "size": 256}, True),
             (
                 "POST",
                 "/api/v1/keys/SAE%2Falice/dec_keys",
@@ -386,7 +370,6 @@ def test_ignore_cert_still_sends_client_certificate(tls_files, tmp_path):
             "client_key": tls_files["client_key"],
             "ca_cert": str(tmp_path / "unused-ca.crt"),
             "ignore_cert": True,
-            "timeout": 2,
         }
         assert create_client(config).allocate_key().key == b"x" * 32
         assert requests[-1][3] is True

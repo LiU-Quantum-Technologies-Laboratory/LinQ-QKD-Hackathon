@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 
 [project.optional-dependencies]
+etsi = ["etsi-qkd-014-client==0.9.0"]
 demo = ["cryptography>=43,<47"]
 web = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1"]
 test = ["pytest>=8,<10", "httpx>=0.27,<1"]

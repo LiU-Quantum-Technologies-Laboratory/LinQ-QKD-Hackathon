@@ -47,7 +47,7 @@ RECEIVER_CONFIG = """
 NETWORK_KMS_CONFIG = """
 {
   "backend": "etsi014",
-  "base_url": "https://kms.example:443",
+  "base_url": "https://10.161.9.0:443",
   "local_sae_id": "SAE_002",
   "peer_sae_id": "SAE_001",
   "client_cert": "certs_out/qkd_client.cert",
