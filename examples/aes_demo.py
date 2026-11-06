@@ -32,7 +32,8 @@ RECEIVER_CONFIG = """
 """
 
 # Unused network example. Configure each participant's local KMS and credentials.
-# To use it, fill in the actual values and assign it to SENDER_CONFIG above.
+# Set the KMS URL and SAE IDs, then assign it to SENDER_CONFIG.
+# Run from the repository root to resolve the certs_out paths.
 # peer_sae_id is required only for backend="etsi014": it identifies the OTHER
 # application that will share the keys, for both allocation and key-ID retrieval.
 # Here the sender is SAE_002 and its peer is SAE_001. The receiver uses the
@@ -49,9 +50,9 @@ NETWORK_KMS_CONFIG = """
   "base_url": "https://kms.example:443",
   "local_sae_id": "SAE_002",
   "peer_sae_id": "SAE_001",
-  "client_cert": "certs/client.crt",
-  "client_key": "certs/client.key",
-  "ca_cert": "certs/kms-ca.crt",
+  "client_cert": "certs_out/qkd_client.cert",
+  "client_key": "certs_out/qkd_client.key",
+  "ca_cert": "certs_out/root_ca.cert",
   "ignore_cert": false
 }
 """

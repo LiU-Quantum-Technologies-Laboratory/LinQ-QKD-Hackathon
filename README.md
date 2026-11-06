@@ -217,9 +217,9 @@ CONFIG = """
   "base_url": "https://kms.example:443",
   "local_sae_id": "SAE_002",
   "peer_sae_id": "SAE_001",
-  "client_cert": "certs/client.crt",
-  "client_key": "certs/client.key",
-  "ca_cert": "certs/kms-ca.crt",
+  "client_cert": "certs_out/qkd_client.cert",
+  "client_key": "certs_out/qkd_client.key",
+  "ca_cert": "certs_out/root_ca.cert",
   "ignore_cert": false
 }
 """
@@ -227,10 +227,11 @@ CONFIG = """
 kms = create_client(CONFIG)
 ```
 
-The example hostname, identities and certificate paths are placeholders. Each
-participant configures its own local KMS and credentials. Relative certificate
-paths are resolved from the directory where you run the application. Only paths
-go into configuration; private keys stay in their files.
+Run the example from the repository root so the relative paths resolve to
+`certs_out/`. The example uses `qkd_client.cert` and `qkd_client.key` for
+client authentication and `root_ca.cert` to verify the KMS server. Set the
+KMS URL and SAE IDs for each participant. Certificate and private key files
+are ignored by Git, so each checkout needs a local copy of the credentials.
 
 The certificate settings match the options in the supplied `qkd014-client` CLI:
 
